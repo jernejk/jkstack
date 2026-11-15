@@ -150,13 +150,13 @@ class Smoke(unittest.TestCase):
         self.assertIn("asOf", feed["headline"]["status"])
         self.assertIn("set ", run(sys.executable, work / "live/recent.py", env=self.env).stdout)
 
-    def test_demo_video_links_and_brand_profiles(self):
-        skill = ROOT / "blueprints/demo-video"
-        for doc in [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]:
-            for target in re.findall(r"\]\(([^)#\s]+)", doc.read_text()):
-                if "://" not in target:
-                    self.assertTrue((doc.parent / target).exists(), f"{doc.name} -> {target}")
-        for profile in (skill / "assets").glob("brand-*.json"):
+    def test_blueprint_links_and_brand_profiles(self):
+        for skill in sorted((ROOT / "blueprints").iterdir()):
+            for doc in [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]:
+                for target in re.findall(r"\]\(([^)#\s]+)", doc.read_text()):
+                    if "://" not in target:
+                        self.assertTrue((doc.parent / target).exists(), f"{skill.name}/{doc.name} -> {target}")
+        for profile in (ROOT / "blueprints/demo-video/assets").glob("brand-*.json"):
             brand = json.loads(profile.read_text())
             self.assertTrue({"stage", "surface", "ink", "accent", "caption", "rail"} <= brand["colors"].keys())
 

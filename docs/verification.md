@@ -6,10 +6,10 @@ The local assembly was checked on macOS. Original skill files were hashed before
 
 | Check | Result |
 | --- | --- |
-| `python3 tests/smoke.py` | Eight tests passed. All installs use temporary homes. |
+| `python3 tests/smoke.py` | Nine tests passed. All installs use temporary homes. |
 | `python3 tests/timeline-browser.py` in a Python environment with Playwright and Chromium | Four configurations passed: 1440 and 390 pixels, light and dark. |
 | `python3 tests/helper-integration.py` | Local NuGet package resolution/provenance and frame extraction from generated media passed. |
-| Skill-creator frontmatter validator on every included skill | Five valid entrypoints: four skills and one blueprint. Descriptions are below 1024 characters. |
+| Skill-creator frontmatter validator on every included skill | Six valid entrypoints: four skills and two blueprints. Descriptions are below 1024 characters. |
 | `bash -n skills/dep-investigate/scripts/dep-snapshot.sh` | Passed. |
 | Python syntax parsing of setup, helpers, and tests | Passed. |
 | Git email check inside the repository | The configured identity was checked and is not copied into this report. |
@@ -21,6 +21,8 @@ Setup checks cover a no-write dry run, both harnesses, a single harness, idempot
 The dependency integration test uses a generated package and an explicitly local-only NuGet source with audit disabled. Inspection then uses `--no-restore`. This checks the actual .NET 10 CLI rather than a mock. The video test generates a one-second clip and extracts a frame. It does not fetch any video.
 
 The demo-video blueprint check resolves every relative link in the blueprint and parses both brand profile templates. A deliberately broken link made it fail. The blueprint bundles no renderer, so no film was rendered from it. One independent review of the blueprint by a different model family found no privacy issues; its seven findings on review bounds, fake-clock capture, spec fields, template placeholders, renderer wording, portrait readability and encoding claims were applied.
+
+The same link check covers the babysit-pr blueprint; a deliberately broken link in it made the test fail. Its `gh` flags and GitHub's `CLEAN` merge state were checked against current documentation and schema by an independent review from a different model family, which found no privacy issues. Its eight findings on re-checking before a merge, verifying the PR's head after a push, safe branch deletion, combining rulesets with classic protection, watcher precedence and state, the waiver wording, re-request authority, and unrelated CI fixes were applied.
 
 ## Privacy gate
 
@@ -48,4 +50,5 @@ Commit messages are checked for AI or model attribution trailers; history has no
 - No screenshot from the supplied reference collection was used or privacy-certified. The README is text only.
 - Cross-platform execution beyond macOS, large dependency graphs, concurrent writers, and long-duration browser behavior were not tested.
 - The demo-video blueprint has not been followed end to end by a fresh agent, and its described extensions are not bundled or tested here.
+- The babysit-pr blueprint bundles no watcher. No watcher was built from its contract here, and no PR was babysat from it.
 - Nothing was published or deployed.

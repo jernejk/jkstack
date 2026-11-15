@@ -1,6 +1,6 @@
 # Selection and sharing notes
 
-Four skills are included, the two required ones and two optional additions, plus one blueprint. Every included skill and blueprint is a modified copy adapted for general sharing, not the original working skill; the adaptations are listed below. Blueprints live in `blueprints/`: they keep the method of a larger workflow whose tooling is not bundled, and setup does not install them.
+Four skills are included, the two required ones and two optional additions, plus two blueprints. Every included skill and blueprint is a modified copy adapted for general sharing, not the original working skill; the adaptations are listed below. Blueprints live in `blueprints/`: they keep the method of a larger workflow whose tooling is not bundled, and setup does not install them.
 
 | Included | Why it earns a place | Size in bytes |
 | --- | --- | ---: |
@@ -9,12 +9,13 @@ Four skills are included, the two required ones and two optional additions, plus
 | design-hill-climb | Uses references, fresh reviewers, hidden score targets, and bounded iteration. | 5758 |
 | dep-investigate | Separates declared, resolved, provenance, API, and runtime evidence. | 7865 |
 | demo-video (blueprint) | Evidence-first short films: claim tables, on-screen evidence labels, phone-readable pacing, and staged review. | 37749 |
+| babysit-pr (blueprint) | A token-free watcher contract, a human scrutiny gate, conflicts fixed within ownership rules, and stale approvals judged by the base branch's rules and the change since sign-off. | 29916 |
 
 All optional additions are below 60 KB. The required timeline is the exception: its self-contained HTML page alone is about 73 KB. It has no external JavaScript or CSS dependency.
 
 ## Inspection scope
 
-Both source skill directories were inventoried. Each included skill's entrypoint and bundled helpers, templates, and references were read. The shorter dependency skill in the second directory was also compared. The complete four-file video skill was reviewed. For the demo-video blueprint, the source skill's entrypoint and all ten references were read, and the headers and interfaces of its recorder, frame capture, composer, marker derivation, checker, review-sheet and OCR scripts were inspected. Its reference films were not available on this machine and were not used. The supplied newer timeline page and both schema versions were inspected; the clean-room reference README and demo entrypoint, adapter, and feed were consulted. Its screenshots and demo were not copied. No image from those directories is used in the README, so no source screenshot is represented as privacy-cleared.
+Both source skill directories were inventoried. Each included skill's entrypoint and bundled helpers, templates, and references were read. The shorter dependency skill in the second directory was also compared. The complete four-file video skill was reviewed. For the demo-video blueprint, the source skill's entrypoint and all ten references were read, and the headers and interfaces of its recorder, frame capture, composer, marker derivation, checker, review-sheet and OCR scripts were inspected. Its reference films were not available on this machine and were not used. For the babysit-pr blueprint, the source skill's entrypoint and both references were read, along with an earlier shareable rewrite of it; the watcher script's flags, exit codes and JSON fields were taken from its documentation, not re-audited line by line. The supplied newer timeline page and both schema versions were inspected; the clean-room reference README and demo entrypoint, adapter, and feed were consulted. Its screenshots and demo were not copied. No image from those directories is used in the README, so no source screenshot is represented as privacy-cleared.
 
 The following alternatives were screened through their entrypoints and inventory. Selected supporting files were inspected where needed to establish a concrete dependency or risk; these are deferrals, not complete code or privacy audits of the excluded trees.
 
@@ -52,6 +53,7 @@ New metered spend defaults to zero. Delegation needs an explicit request. Author
 | Design loop | Removed run provenance, fixed provider/model choices, and automatic PR delivery. Added explicit delegation authority, enforceable paid-run limits, pending-review honesty, and a documented single-agent fallback. Removed a Claude-only frontmatter field rejected by the Codex validator. |
 | Dependency investigation | Workspace-local sparse-source directory, official versioned evidence first, explicit read-only scope, optional native delegation, unique temporary graph output, a prerequisite check, and no implicit restore. Fixed the .NET 10 command to use `--project`; preserved stderr diagnostics. |
 | Demo video | Rewritten as a blueprint from the source skill's method. Added sprint-demo, research, walkthrough, and repro modes and a generic "Previously on" mode. Replaced third-party brand rules, mascots, and the default music bed with brand profiles, plus personal and fictional Contoso templates that contain no real logos. Removed personal viewing notes, named model routing, private reference films, machine paths, and app-specific capture notes. Delivery destinations became suggestions that each need authority. Tools and journey films are described as extensions, not bundled. |
+| PR babysitting | Rewritten as a blueprint from the source skill. Removed repository-specific publication stages and review-bot setup, personal model routing, desktop effects, sibling-skill paths and machine notes. The staged draft review became an optional, generic gate. Bot names became configurable logins. The watcher, notifier, review receipts and close-out handoff are described as extensions, not bundled. |
 | Packaging | Added a preflighted symlink setup, MIT license, ignore rules, requirements, privacy notes, and local regression checks. Setup does not edit harness configuration or run skills. |
 
 ## Inspiration and remaining decisions

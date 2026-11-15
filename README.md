@@ -18,6 +18,7 @@ Blueprints describe larger workflows whose tooling is too specific to bundle. Ea
 | Blueprint | What it covers |
 | --- | --- |
 | [demo-video](blueprints/demo-video/SKILL.md) | Evidence-first done videos, sprint demos, "Previously on" recaps, research, release, walkthrough and repro films. No renderer is bundled. |
+| [babysit-pr](blueprints/babysit-pr/SKILL.md) | Watch a PR to ready: bot-comment triage, CI fixes, conflict and stale-approval rules, and the contract for a watcher that spends no model tokens while it waits. No watcher is bundled. |
 
 ## Install
 
@@ -49,6 +50,7 @@ Use a skill by name, such as `/live-timeline` in Claude Code or `$live-timeline`
 - FFmpeg for local video frames. `yt-dlp` is optional and requires explicit download authorization. No browser cookies or paid transcription API are used.
 - Your ecosystem tools for dependency inspection; the .NET helper needs .NET SDK 10+ and `jq`.
 - For demo videos: browser automation, FFmpeg and an HTML-to-video renderer of your choice, plus licensed music.
+- For PR babysitting: the GitHub CLI, authenticated for the repository, and a harness that can wake on a background command.
 - Browser capture and independent model reviewers for design review. Set a round limit and spend ceiling first. A single-agent run reports that it lacks independent review.
 
 ## Privacy
