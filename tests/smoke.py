@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Offline smoke checks. All generated installs use temporary homes."""
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run(*args, env=None, input=None, ok=True):
+    result = subprocess.run([str(a) for a in args], text=True, input=input, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+    if ok and result.returncode:
+        raise AssertionError(result.stdout + result.stderr)
+    return result
+
+
+class Smoke(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="jkstack-smoke-")
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.home = self.base / "home"
+        self.home.mkdir()
+        self.env = dict(os.environ, HOME=str(self.home), PYTHONDONTWRITEBYTECODE="1")
+
+    def setup(self, *args, ok=True):
+        return run(sys.executable, ROOT / "setup", *args, env=self.env, ok=ok)
+
+    def init(self):
+        work = self.base / "work"
+        run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", work,
+            "--owner", "Owner", "--lanes", "main:Main lane", "--tz", "UTC", env=self.env)
+        return work
+
+    def test_setup_dry_run_and_both(self):
+        self.setup("--both", "--dry-run")
+        self.assertEqual(list(self.home.iterdir()), [])
+        self.setup("--both")
+        for harness in (".claude", ".agents"):
+            for source in (ROOT / "skills").iterdir():
+                target = self.home / harness / "skills" / source.name
+                self.assertTrue(target.is_symlink())
+                self.assertEqual(target.resolve(), source.resolve())
+        for harness in (".claude", ".agents"):
+            for blueprint in (ROOT / "blueprints").iterdir():
+                self.assertFalse(os.path.lexists(self.home / harness / "skills" / blueprint.name))
+        result = self.setup("--both")
+        self.assertIn("already linked", result.stdout)
+        self.assertNotIn("\nlink:", result.stdout)
+
+    def test_setup_individual_targets(self):
+        self.setup("--codex")
+        self.assertFalse((self.home / ".claude").exists())
+        self.assertTrue((self.home / ".agents/skills/live-timeline").is_symlink())
+
+    def test_setup_conflicts_are_preflighted(self):
+        folder = self.home / ".agents/skills"
+        folder.mkdir(parents=True)
+        target = folder / "live-timeline"
+        for kind in ("dir", "file", "symlink"):
+            if kind == "dir":
+                target.mkdir()
+            elif kind == "file":
+                target.write_text("preserve")
+            else:
+                target.symlink_to(self.base / "absent")
+            result = self.setup("--both", ok=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((self.home / ".claude").exists())
+            self.assertEqual(list(folder.iterdir()), [target])
+            target.rmdir() if kind == "dir" else target.unlink()
+
+    def test_setup_refuses_symlink_parent(self):
+        outside = self.base / "outside"
+        outside.mkdir()
+        (self.home / ".claude").symlink_to(outside)
+        self.assertNotEqual(self.setup("--both", ok=False).returncode, 0)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse((self.home / ".agents").exists())
+
+    def test_timeline_patch_and_privacy_rejection(self):
+        work = self.init()
+        feed = work / "live/events.json"
+        patch = {"events": [{"ref": "check", "lane": "main", "kind": "success", "importance": 2,
+                             "title": "Batch check passes", "summary": "All three rows match.",
+                             "images": [{"path": "live/thumbs/check.png", "caption": "Synthetic check",
+                                         "full": "assets/check.png"}]}],
+                 "headline": {"best": {"text": "Three rows match", "eventId": "@check"}}}
+        result = run(sys.executable, work / "live/patch.py", input=json.dumps(patch), env=self.env)
+        self.assertEqual(json.loads(result.stdout)["new"], ["e002"])
+        run(sys.executable, work / "live/validate.py", env=self.env)
+        before = feed.read_bytes()
+        for value in ("../private.png", "https://example.com/tracker.png", "private/a.png",
+                      "live/%2e%2e/a.png", "live/../a.png", "\\\\host/a.png", "./PRIVATE/a.png"):
+            patch["events"][0]["images"][0]["path"] = value
+            result = run(sys.executable, work / "live/patch.py", input=json.dumps(patch), env=self.env, ok=False)
+            self.assertNotEqual(result.returncode, 0, value)
+            self.assertEqual(feed.read_bytes(), before)
+        patch["events"][0]["images"][0]["path"] = "live/thumbs/check.png"
+        patch["events"][0]["kind"] = "sealed"
+        result = run(sys.executable, work / "live/patch.py", input=json.dumps(patch), env=self.env, ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(feed.read_bytes(), before)
+        result = run(sys.executable, work / "live/brief.py", "--since", "all", env=self.env)
+        self.assertIn("Batch check passes", result.stdout)
+        run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", work, "--upgrade", env=self.env)
+        self.assertEqual(feed.read_bytes(), before)
+
+    def test_collector_excludes_private_sources(self):
+        work = self.init()
+        (work / "STATUS.md").write_text("First batch passed.\n")
+        (work / "private").mkdir()
+        (work / "private/STATUS.md").write_text("Do not collect this sentence.\n")
+        result = run(sys.executable, work / "live/collect.py", env=self.env)
+        self.assertIn("First batch passed", result.stdout)
+        self.assertNotIn("Do not collect", result.stdout)
+        result = run(sys.executable, work / "live/collect.py", env=self.env)
+        self.assertNotIn("SOURCE", result.stdout)
+
+    def test_demo_video_links_and_brand_profiles(self):
+        skill = ROOT / "blueprints/demo-video"
+        for doc in [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]:
+            for target in re.findall(r"\]\(([^)#\s]+)", doc.read_text()):
+                if "://" not in target:
+                    self.assertTrue((doc.parent / target).exists(), f"{doc.name} -> {target}")
+        for profile in (skill / "assets").glob("brand-*.json"):
+            brand = json.loads(profile.read_text())
+            self.assertTrue({"stage", "surface", "ink", "accent", "caption", "rail"} <= brand["colors"].keys())
+
+    def test_transcript_preserves_distinct_lines(self):
+        vtt = self.base / "input.vtt"
+        vtt.write_text("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nFirst line\nSecond line\n\n"
+                       "00:00:02.000 --> 00:00:03.000\nSecond line\n<c>Third line</c>\n")
+        out = self.base / "transcript.txt"
+        run(sys.executable, ROOT / "skills/deep-yt-analysis/vtt-to-transcript.py", vtt, out, env=self.env)
+        self.assertEqual(out.read_text(), "[00:01] First line\n[00:01] Second line\n[00:02] Third line\n")
+        run(sys.executable, ROOT / "skills/deep-yt-analysis/vtt-dedupe.py", vtt, out, env=self.env)
+        self.assertEqual(out.read_text(), "[00:01] Second line\n[00:02] Third line\n")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

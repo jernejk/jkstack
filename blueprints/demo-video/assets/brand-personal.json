@@ -1,0 +1,23 @@
+{
+  "name": "Your Name",
+  "logo": null,
+  "colors": {
+    "stage": "#111318",
+    "surface": "#1B1E26",
+    "ink": "#F4F5F7",
+    "accent": "#FFB347",
+    "caption": "#FFB347",
+    "rail": "#9AA3B2"
+  },
+  "fonts": [
+    { "family": "Inter", "licence": "SIL Open Font License 1.1" },
+    { "family": "JetBrains Mono", "licence": "SIL Open Font License 1.1" }
+  ],
+  "characters": [],
+  "cards": {
+    "intro": { "layout": "title-left", "showName": true },
+    "end": { "layout": "centered", "reference": "PR {number}", "showUrl": "example.com" }
+  },
+  "rail": { "position": "bottom", "style": "plain" },
+  "music": null
+}

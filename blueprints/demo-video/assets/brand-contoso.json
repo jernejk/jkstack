@@ -1,0 +1,46 @@
+{
+  "name": "Contoso",
+  "logo": "brand/contoso-logo.svg",
+  "colors": {
+    "stage": "#F6F5F2",
+    "surface": "#FFFFFF",
+    "ink": "#1A1A2E",
+    "accent": "#0F6CBD",
+    "caption": "#0F6CBD",
+    "rail": "#5C5F66"
+  },
+  "fonts": [
+    {
+      "family": "Poppins",
+      "licence": "SIL Open Font License 1.1"
+    },
+    {
+      "family": "Inter",
+      "licence": "SIL Open Font License 1.1"
+    }
+  ],
+  "characters": [
+    {
+      "id": "helper",
+      "file": "brand/mascot-helper.png",
+      "accent": "#0F6CBD",
+      "role": "product assistant"
+    }
+  ],
+  "cards": {
+    "intro": {
+      "layout": "mascot-left",
+      "showName": true
+    },
+    "end": {
+      "layout": "mascot-right",
+      "reference": "#{number}",
+      "showTitle": true
+    }
+  },
+  "rail": {
+    "position": "top-right",
+    "style": "pill"
+  },
+  "music": null
+}
