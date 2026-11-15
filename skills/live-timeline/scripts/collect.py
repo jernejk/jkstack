@@ -3,10 +3,16 @@
 
   python3 live/collect.py            # new lines per source, T3 thread activity, pending approvals, quiet lanes
   python3 live/collect.py --reset    # forget the cursor (next pass prints each source's tail)
+  python3 live/collect.py --mark     # read everything silently, so the keeper's first pass starts after the seed
+
+Output stays near `maxChars` (config, default 8000): a source that doesn't fit is held whole for the next pass, never dropped.
+It ends with a NEXT line listing what this cycle's single patch must cover, and flags a stale headline status.
 """
+import contextlib
 import glob
 import hashlib
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -99,13 +105,44 @@ def t3(cfg, old):
     return {}
 
 
+def stale_status(cfg):
+    try:
+        data = json.loads((HERE / "events.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    status = (data.get("headline") or {}).get("status") or {}
+    if (data.get("run") or {}).get("done") or status.get("tone") == "done":
+        return ""
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(status["asOf"])).total_seconds() / 60
+    except (KeyError, TypeError, ValueError):
+        age = None
+    limit = cfg.get("statusStaleMin", 20)
+    if age is not None and age < limit:
+        return ""
+    said = f"{status.get('tone', '')}: {status.get('text', '')}" + (f" · {status['note']}" if status.get("note") else "")
+    return (f"STATUS set {int(age)} min ago" if age is not None else "STATUS never dated") + \
+        f" ({said}). Still true? Send headline.status again, corrected or as is."
+
+
 def main():
+    if "--mark" in sys.argv:
+        with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
+            collect()
+        print("MARKED: the next pass shows only what changes from now on")
+        return
+    collect()
+
+
+def collect():
     cfg = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
     old = {} if "--reset" in sys.argv or not STATE.exists() else json.loads(STATE.read_text())
     tail, cap = cfg.get("firstPassTail", 25), cfg.get("maxLinesPerSource", 80)
+    budget = float("inf") if "--mark" in sys.argv else cfg.get("maxChars", 8000)
     drop = set(cfg.get("jsonlDropKeys", []))
     state = {"collected": datetime.now().astimezone().isoformat(timespec="seconds"), "files": {}, "threads": {}}
     print("COLLECTED", state["collected"], "· previous", old.get("collected", "never"))
+    todo, held = [], []
     for key, path in sources(cfg):
         st = path.stat()
         prev = old.get("files", {}).get(key, {})
@@ -115,20 +152,50 @@ def main():
         lines = path.read_text(errors="replace").splitlines()
         hashes = [hashlib.sha1(l.encode()).hexdigest()[:16] for l in lines]
         seen = set(prev.get("h", []))
-        new = [l for l, h in zip(lines, hashes) if h not in seen and l.strip()]
-        state["files"][key] = {"mtime_ns": st.st_mtime_ns, "size": st.st_size, "h": hashes}
+        new = [(l, h) for l, h in zip(lines, hashes) if h not in seen and l.strip()]
         if not prev:
             new = new[-tail:]
         cut = len(new) - cap
         new = new[-cap:]
-        print(f"\nSOURCE {key}  +{len(new)} lines" + (f" ({cut} older new lines skipped)" if cut > 0 else "") + ("  [first pass: tail only]" if not prev else ""))
-        for line in new:
-            print("  " + (jsonl_line(line, drop) if path.suffix == ".jsonl" else line[:400]))
+        name = key if not key.startswith(("~", "/")) else "…/" + "/".join(Path(key).parts[-2:])
+        texts = [jsonl_line(l, drop) if path.suffix == ".jsonl" else l[:400] for l, _ in new]
+        size = sum(len(t) + 3 for t in texts) + len(name) + 60
+        if size > budget and todo:
+            if prev:
+                state["files"][key] = prev
+            held.append(f"{name} ({len(new)} lines)")
+            continue
+        shown = []
+        for text in texts:
+            if budget < len(text) + 3 and shown:
+                break
+            budget -= len(text) + 3
+            shown.append(text)
+        budget -= len(name) + 60
+        rest = {h for _, h in new[len(shown):]}
+        state["files"][key] = {"mtime_ns": None if rest else st.st_mtime_ns, "size": st.st_size,
+                               "h": [h for h in hashes if h not in rest]}
+        if rest:
+            held.append(f"the rest of {name} ({len(rest)} lines)")
+        todo.append(f"{name} (+{len(shown)})")
+        print(f"\nSOURCE {name}  +{len(shown)} lines" + (f" ({cut} older new lines skipped)" if cut > 0 else "")
+              + ("  [first pass: tail only]" if not prev else "") + (f"  [{len(rest)} more next pass]" if rest else ""))
+        for text in shown:
+            print("  " + text)
     state["threads"] = t3(cfg, old.get("threads", {}))
     STATE.parent.mkdir(exist_ok=True)
     tmp = STATE.with_suffix(".next.json")
     tmp.write_text(json.dumps(state) + "\n")
     tmp.replace(STATE)
+    if held:
+        print("\nHELD for the next pass (output budget): " + ", ".join(held))
+    stale = stale_status(cfg)
+    if stale:
+        print("\n" + stale)
+    if todo:
+        print("\nNEXT put all of this in one patch: " + ", ".join(todo) + (", and the status" if stale else "") + ".")
+    elif stale:
+        print("\nNEXT send headline.status in this cycle's patch.")
 
 
 if __name__ == "__main__":

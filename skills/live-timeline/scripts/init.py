@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
-SCRIPTS = ["validate.py", "patch.py", "collect.py", "brief.py"]
+SCRIPTS = ["validate.py", "patch.py", "collect.py", "brief.py", "recent.py", "snap.py"]
 
 
 def local_tz():
@@ -48,6 +48,7 @@ def main():
     ap.add_argument("--page", default="live-timeline.html")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--upgrade", action="store_true", help="refresh page + scripts + SCHEMA, keep events and config")
+    ap.add_argument("--empty", action="store_true", help="no starter chapter or event, for seeding history that predates the scaffold")
     a = ap.parse_args()
 
     root = Path(a.folder).expanduser().resolve()
@@ -61,6 +62,7 @@ def main():
     for s in SCRIPTS:
         shutil.copyfile(SKILL / "scripts" / s, live / s)
     shutil.copyfile(SKILL / "references/schema.md", live / "SCHEMA.md")
+    shutil.copyfile(SKILL / "references/lead-log.md", live / "LOG-TAGS.md")
     if a.upgrade and exists:
         print(f"upgraded {page} and {live}/ scripts; events and config untouched")
         return
@@ -71,16 +73,18 @@ def main():
     for spec in filter(None, (x.strip() for x in a.lanes.split(","))):
         parts = spec.split(":")
         lid = parts[0].strip().lower()
+        if lid == owner_id:
+            continue
         name = parts[1].strip() if len(parts) > 1 else lid
         lanes.append({"id": lid, "name": name, "short": (parts[2] if len(parts) > 2 else name.split()[0])[:8], "status": "running"})
     feed = {
         "schema": 2,
         "updated": now,
         "run": {"title": a.title, "owner": a.owner, "tz": a.tz, "start": now, "staleAfterMin": 30},
-        "headline": {"status": {"tone": "good", "text": "Starting", "note": "Timeline set up"}},
+        "headline": {"status": {"tone": "good", "text": "Starting", "note": "Timeline set up", "asOf": now}},
         "lanes": lanes,
-        "chapters": [{"id": "c1", "title": "Setting out", "start": now, "summary": "What we are trying to do, and how."}],
-        "events": [{"id": "e001", "time": now, "lane": lanes[1]["id"] if len(lanes) > 1 else owner_id, "kind": "decision",
+        "chapters": [] if a.empty else [{"id": "c1", "title": "Setting out", "start": now, "summary": "What we are trying to do, and how."}],
+        "events": [] if a.empty else [{"id": "e001", "time": now, "lane": lanes[1]["id"] if len(lanes) > 1 else owner_id, "kind": "decision",
                     "importance": 2, "chapter": "c1", "title": "The timeline starts",
                     "summary": "A live timeline now tracks this work; the keeper adds events as they happen."}],
         "metrics": [],
@@ -96,6 +100,8 @@ def main():
             "jsonlDropKeys": [],
             "firstPassTail": 25,
             "maxLinesPerSource": 80,
+            "maxChars": 8000,
+            "statusStaleMin": 20,
             "t3": {"root": "", "titles": [], "quietAfterMin": 30},
             "spend": {"sources": [], "budgetUsd": a.budget, "currency": a.currency, "step": 100, "lane": lanes[1]["id"] if len(lanes) > 1 else owner_id},
             "deny": {"wordsFromDirs": [], "wordsFile": "", "phrases": []},

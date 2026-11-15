@@ -123,6 +123,33 @@ class Smoke(unittest.TestCase):
         result = run(sys.executable, work / "live/collect.py", env=self.env)
         self.assertNotIn("SOURCE", result.stdout)
 
+    def test_collector_holds_overflow_and_lists_next(self):
+        work = self.init()
+        config = work / "live/keeper/config.json"
+        cfg = json.loads(config.read_text())
+        cfg.update(maxChars=200, sources=["LOG.md", "*/REPORT.md"])
+        config.write_text(json.dumps(cfg))
+        (work / "LOG.md").write_text("".join(f"- 00:0{i} (main) [result] Beat number {i} of the lead log.\n" for i in range(1, 7)))
+        (work / "sol").mkdir()
+        (work / "sol/REPORT.md").write_text("Sol found two risks.\n")
+        first = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        second = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        third = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        for i in range(1, 7):
+            self.assertEqual((first + second + third).count(f"Beat number {i} "), 1, i)
+        self.assertIn("Sol found two risks", first + second + third)
+        self.assertIn("HELD", first)
+        self.assertIn("NEXT put all of this in one patch: LOG.md", first)
+        self.assertNotIn("STATUS", first)
+        cfg["statusStaleMin"] = 0
+        config.write_text(json.dumps(cfg))
+        stale = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("NEXT send headline.status", stale)
+        run(sys.executable, work / "live/patch.py", input='{"headline": {"status": {"tone": "warn", "text": "Slow"}}}', env=self.env)
+        feed = json.loads((work / "live/events.json").read_text())
+        self.assertIn("asOf", feed["headline"]["status"])
+        self.assertIn("set ", run(sys.executable, work / "live/recent.py", env=self.env).stdout)
+
     def test_demo_video_links_and_brand_profiles(self):
         skill = ROOT / "blueprints/demo-video"
         for doc in [skill / "SKILL.md", *sorted((skill / "references").glob("*.md"))]:

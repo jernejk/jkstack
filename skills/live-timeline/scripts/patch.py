@@ -7,6 +7,7 @@
   EOF
 
 Keys: events, edit, chapters, metrics, lanes ({id: status}), addLanes, headline (merged; null deletes), run (merged).
+Sending headline.status stamps its asOf, which collect.py uses to flag a stale status.
 New events and chapters get the next id; "@ref" anywhere in the patch resolves to the id given to that ref.
 """
 import json
@@ -141,6 +142,8 @@ def main():
         if lane["id"] in patch.get("lanes", {}):
             lane["status"] = patch["lanes"][lane["id"]]
     merge(data.setdefault("headline", {}), resolve(patch.get("headline", {}), refs))
+    if (patch.get("headline") or {}).get("status"):
+        data["headline"]["status"]["asOf"] = now
     merge(data.setdefault("run", {}), patch.get("run", {}))
     refresh_spend(data, cfg, now)
     data["updated"] = now

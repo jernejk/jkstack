@@ -17,7 +17,7 @@ python3 "$SKILL_DIR/scripts/init.py" ./work \
   --lanes "main:Main lane,check:Check lane" --budget 50 --tz UTC
 ```
 
-The work folder receives `live-timeline.html` and `live/`: feed, schema, helpers, and `keeper/config.json`. They work independently of this installation. `--upgrade` refreshes the page, helpers, and schema while preserving the feed and config. `--force` resets an existing run; use it only when requested.
+The work folder receives `live-timeline.html` and `live/`: feed, schema, helpers, and `keeper/config.json`. They work independently of this installation. `--upgrade` refreshes the page, helpers, and schema while preserving the feed and config. `--force` resets an existing run; use it only when requested. `--empty` leaves out the starter chapter and event, for seeding a story that began before the scaffold. An owner listed again in `--lanes` is not duplicated.
 
 ## Configure and seed
 
@@ -29,7 +29,7 @@ Read [the schema](references/schema.md) for fields, style, and patch examples.
 - `deny`: optional phrases, a word file, or directory names to catch in the feed. Keep deny lists, source logs, config, and private material outside the served directory. Review captions, images, and link targets separately; the validator cannot see pixels or determine whether a file is private.
 - `t3`: optional `root` or title filters, `quietAfterMin`, and `db` for a read-only local state database. Empty filters disable database access. The adapter supports specific projection layouts and reports unavailable on others; logs alone work in every harness. Discover your own thread ids through your harness. Never ship them in a skill.
 
-Read existing logs once and seed chapters, starts, outcomes, and owner nudges with `patch.py`. Titles use at most eight words; summaries are one line. Results link to starts with `causedBy`.
+Read existing logs once and seed chapters, starts, outcomes, and owner nudges with `patch.py`. Titles use at most eight words; summaries are one line. Results link to starts with `causedBy`. Give new chapters a `ref` and point events at `"chapter": "@ref"` rather than guessing ids. After seeding, run `python3 work/live/collect.py --mark` so the keeper's first pass doesn't narrate the seed again.
 
 ```sh
 python3 work/live/patch.py <<'JSON'
@@ -52,7 +52,7 @@ This is a local preview. Remote access needs the owner's chosen authenticated ho
 
 ## Keep the story current
 
-Use [the keeper brief](references/keeper-brief.md). In Claude Code or Codex, run a keeper only through supported task/background facilities and only when delegation is authorized. In T3 Code, use its task facility when available. Otherwise update the feed inline at milestones; a separate agent is optional. No new paid calls or recurring schedules without authorization and a cap.
+Use [the keeper brief](references/keeper-brief.md). The cheapest reliable setup is a **lead log** ([format](references/lead-log.md)): the orchestrator appends `- HH:MM (lane) [tag] summary` lines as it works, and the keeper turns each into an event. Then even a small model such as GPT-6 Luna writes accurate, well-formed beats, because the times, numbers and kinds come from the writer. `live/recent.py` gives the keeper a one-screen view of the feed instead of the whole file, and `live/snap.py` takes before/after screenshots, checks them itself and prints the `images` JSON (needs Python Playwright). `collect.py` keeps its output under `maxChars`, holding the rest for the next pass, and ends with a NEXT line listing what the cycle's one patch must cover. In Claude Code or Codex, run a keeper only through supported task/background facilities and only when delegation is authorized. In T3 Code, use its task facility when available. Otherwise update the feed inline at milestones; a separate agent is optional. No new paid calls or recurring schedules without authorization and a cap.
 
 A cycle reads `collect.py`, selects meaningful changes, and patches the feed. An empty patch is a heartbeat. Use a bounded cadence, normally ten minutes, and stop at the agreed deadline, budget, or completed run. A quiet lane is evidence of silence, not proof of a blocker. A keeper restart resumes from the feed and `keeper/state.json`.
 

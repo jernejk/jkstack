@@ -4,7 +4,7 @@ Four skills are included, the two required ones and two optional additions, plus
 
 | Included | Why it earns a place | Size in bytes |
 | --- | --- | ---: |
-| live-timeline | A feed-driven story with causal arcs, owner asks, snapshots, and quiet-gap compression. | 127169 |
+| live-timeline | A feed-driven story with causal arcs, owner asks, snapshots, and quiet-gap compression. | 148662 |
 | deep-yt-analysis | Combines caption curation, visually checked frames, claim research, and an inspectable verdict. | 21238 |
 | design-hill-climb | Uses references, fresh reviewers, hidden score targets, and bounded iteration. | 5758 |
 | dep-investigate | Separates declared, resolved, provenance, API, and runtime evidence. | 7865 |
