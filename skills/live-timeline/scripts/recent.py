@@ -16,9 +16,13 @@ events = data.get("events", [])
 print("CHAPTERS " + " · ".join(f"{c['id']} {c['title']}" for c in data.get("chapters", [])))
 for e in events[-n:]:
     print(f"{e['id']} {e.get('time', '')[11:16]} {e['lane']} {e['kind']}{' ' + e['state'] if e.get('state') else ''} · {e['title']}")
-still = [e for e in events if (e["kind"] == "start" and e.get("state", "running") == "running")
+still = [e for e in events if (e["kind"] == "start" and e.get("state") == "running")
          or (e["kind"] == "blocked" and e.get("state", "open") == "open")]
 print("OPEN " + (" · ".join(f"{e['id']} {e['title']}" for e in still) or "none"))
 status = data.get("headline", {}).get("status", {})
 print(f"STATUS {status.get('tone', '')}: {status.get('text', '')} · {status.get('note', '')} · set {(status.get('asOf') or '')[11:16] or 'never'}")
 print("LANES " + " ".join(f"{l['id']}:{l.get('status', '')}" for l in data.get("lanes", [])))
+busy = {e["lane"] for e in still}
+idle = [l["id"] for l in data.get("lanes", []) if l.get("status") == "running" and not l.get("human") and l["id"] not in busy]
+if idle:
+    print("IDLE (marked running, nothing open): " + " ".join(idle) + ". Send lanes {id: \"done\"} only when the log says the lane finished.")

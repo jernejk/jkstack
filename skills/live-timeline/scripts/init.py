@@ -13,7 +13,7 @@ import os
 import re
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
@@ -29,6 +29,10 @@ def local_tz():
 
 
 def now_iso(tz):
+    m = re.fullmatch(r"(?:UTC|GMT)?([+-])(\d\d):?(\d\d)", str(tz or ""))
+    if m:
+        off = timedelta(hours=int(m[2]), minutes=int(m[3])) * (-1 if m[1] == "-" else 1)
+        return datetime.now(timezone(off)).isoformat(timespec="seconds")
     try:
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds")

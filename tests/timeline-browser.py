@@ -71,6 +71,7 @@ def main():
                     page.locator("#runTitle").filter(has_text="Catalogue import").wait_for()
                     page.locator(".b-imgs img").wait_for()
                     assert page.locator(".rib-gap").count() > 0
+                    assert page.locator("#feed").is_visible(), "the finished/stale banner must stay visible"
                     assert page.locator(".b-imgs img").evaluate("e => e.complete && e.naturalWidth > 0")
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
                     page.locator('.b-card[data-open="e002"]').click()
@@ -88,7 +89,39 @@ def main():
                     assert not errors, errors
                     print(f"PASS width={width} theme={scheme}: image/card/popup, folded gap, update draft, cached-feed fallback, no overflow or JS errors")
                     context.close()
+            busy_feed(browser, html, json.loads((work / "live/events.json").read_text()))
             browser.close()
+
+
+def busy_feed(browser, html, feed):
+    """A two-day, 300-event run with many quiet gaps: the phone ribbon must keep time order and readable gap labels."""
+    start = datetime.now(timezone.utc) - timedelta(hours=80)
+    stamp = lambda t: t.isoformat(timespec="seconds")
+    feed["run"].update(start=stamp(start), done=False)
+    feed["lanes"] = [{"id": f"l{i}", "name": f"Lane {i}", "short": f"L{i}", "status": "running"} for i in range(6)]
+    feed["chapters"][0].update(start=stamp(start))
+    t, events = start, []
+    for i in range(300):
+        t += timedelta(minutes=95 if i % 8 == 7 else 3)
+        events.append({"id": f"e{i + 1:03d}", "time": stamp(t), "lane": f"l{i % 6}", "kind": "update",
+                       "importance": 2, "chapter": "c1", "title": f"Beat {i + 1}", "summary": "Synthetic beat."})
+    feed["events"], feed["metrics"] = events, []
+    times = {e["id"]: e["time"] for e in events}
+    context = browser.new_context(viewport={"width": 390, "height": 900})
+    page = context.new_page()
+    page.route("**/*", lambda route: route.fulfill(body=html, content_type="text/html") if urlsplit(route.request.url).path == "/"
+               else route.fulfill(body=json.dumps(feed), content_type="application/json"))
+    page.goto("https://timeline.test/")
+    page.locator(".rib-gap").first.wait_for()
+    xs = page.evaluate("[...document.querySelectorAll('#ribbon .mk')].map(g => [g.dataset.id, +g.querySelector('.hit').getAttribute('cx')])")
+    order = [x for _, x in sorted(xs, key=lambda p: times[p[0]])]
+    assert all(b >= a - 0.01 for a, b in zip(order, order[1:])), "ribbon x must follow time"
+    labels = sorted(page.evaluate("[...document.querySelectorAll('#ribbon .rib-gap text')].map(t => +t.getAttribute('x'))"))
+    assert all(b - a >= 24 for a, b in zip(labels, labels[1:])), labels
+    assert page.locator(".c-lanes .big").inner_text() == "0", "lanes marked running with nothing open and no recent beat are not active"
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    print(f"PASS busy feed at 390: {len(xs)} markers in time order, {len(labels)} gap labels apart, idle lanes not counted")
+    context.close()
 
 
 if __name__ == "__main__":

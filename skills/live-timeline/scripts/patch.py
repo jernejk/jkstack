@@ -13,7 +13,7 @@ New events and chapters get the next id; "@ref" anywhere in the patch resolves t
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +26,10 @@ NEXT = HERE / "events.next.json"
 
 
 def now_iso(tz):
+    m = re.fullmatch(r"(?:UTC|GMT)?([+-])(\d\d):?(\d\d)", str(tz or ""))
+    if m:
+        off = timedelta(hours=int(m[2]), minutes=int(m[3])) * (-1 if m[1] == "-" else 1)
+        return datetime.now(timezone(off)).isoformat(timespec="seconds")
     try:
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds") if tz else datetime.now().astimezone().isoformat(timespec="seconds")
@@ -36,6 +40,12 @@ def now_iso(tz):
 def next_id(items, prefix, width):
     nums = [int(m[1]) for i in items if (m := re.fullmatch(rf"{prefix}(\d+)", str(i.get("id", ""))))]
     return f"{prefix}{(max(nums) + 1 if nums else 1):0{width}d}"
+
+
+def chapter_at(chapters, time):
+    t = validate.when(time)
+    started = [c for c in chapters if c.get("start") and validate.when(c["start"]) <= t]
+    return max(started, key=lambda c: validate.when(c["start"]))["id"] if started else chapters[0]["id"]
 
 
 def resolve(value, refs):
@@ -111,33 +121,56 @@ def main():
     now = now_iso((data.get("run") or {}).get("tz"))
     refs = {}
 
+    new_chapters = []
     for c in patch.get("chapters", []):
         cid = c.get("id") or next_id(data.setdefault("chapters", []), "c", 1)
         if c.get("ref"):
             refs[c.pop("ref")] = cid
-        data["chapters"].append({**c, "id": cid, "start": c.get("start", now)})
+        chapter = {**c, "id": cid}
+        data["chapters"].append(chapter)
+        new_chapters.append(chapter)
     data["lanes"].extend(patch.get("addLanes", []))
     pending = []
     for e in patch.get("events", []):
         eid = next_id(data["events"] + pending, "e", 3)
+        own = {eid}
         if e.get("ref"):
-            refs[e.pop("ref")] = eid
+            refs[e["ref"]] = eid
+            own.add("@" + e.pop("ref"))
         e = {**e, "id": eid}
         e.setdefault("time", now)
-        if data.get("chapters"):
-            e.setdefault("chapter", data["chapters"][-1]["id"])
         if e.get("kind") == "blocked":
             e.setdefault("state", "open")
+        if isinstance(e.get("causedBy"), list):
+            e["causedBy"] = [c for c in e["causedBy"] if c not in own] or None
+            if e["causedBy"] is None:
+                e.pop("causedBy")
         pending.append(e)
-    data["events"].extend(resolve(pending, refs))
+    pending = resolve(pending, refs)
+    for chapter in new_chapters:
+        times = [e["time"] for e in pending if e.get("chapter") == chapter["id"]]
+        chapter.setdefault("start", min(times, key=validate.when) if times else now)
+    for e in pending:
+        if data.get("chapters") and not e.get("chapter"):
+            e["chapter"] = chapter_at(data["chapters"], e["time"])
+    data["events"].extend(pending)
     for eid, changes in resolve(patch.get("edit", {}), refs).items():
         event = next((e for e in data["events"] if e["id"] == eid), None)
         if not event:
             raise SystemExit(f"edit: no event {eid}")
         event.update(changes)
         event["updated"] = now
-    for m in patch.get("metrics", []):
-        data.setdefault("metrics", []).append({**m, "time": m.get("time", now)})
+    for m in resolve(patch.get("metrics", []), refs):
+        source = next((e for e in data["events"] if e["id"] == m.get("event")), None) if m.get("event") else None
+        if m.get("event") and not source:
+            raise SystemExit(f"metric: no event {m['event']}")
+        m = {**m, "time": m.get("time") or (source["time"] if source else now)}
+        if source:
+            m.setdefault("lane", source["lane"])
+        data.setdefault("metrics", []).append(m)
+    unknown = set(patch.get("lanes", {})) - {lane["id"] for lane in data["lanes"]}
+    if unknown:
+        raise SystemExit(f"lanes: no lane {', '.join(sorted(unknown))}; add it with addLanes")
     for lane in data["lanes"]:
         if lane["id"] in patch.get("lanes", {}):
             lane["status"] = patch["lanes"][lane["id"]]
@@ -150,8 +183,10 @@ def main():
 
     NEXT.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     errors, warnings, _ = validate.check(NEXT, cfg)
+    new_ids = {e["id"] for e in pending}
     for w in warnings:
-        print("warn:", w)
+        if not re.match(r"e\d+:", w) or w.split(":")[0] in new_ids:
+            print("warn:", w)
     if errors:
         for e in errors:
             print("error:", e)

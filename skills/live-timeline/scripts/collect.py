@@ -13,8 +13,10 @@ import glob
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +49,18 @@ def jsonl_line(line, drop):
     if isinstance(row, dict):
         row = {k: v for k, v in row.items() if k not in drop}
     return json.dumps(row, ensure_ascii=False)[:600]
+
+
+def clip(line, limit=400):
+    """Shorten a long line but keep every [tag] after the cut: tags carry images, metrics and status."""
+    if len(line) <= limit:
+        return line
+    cut = limit
+    opened = line.rfind("[", 0, cut)
+    if opened != -1 and line.find("]", opened) >= cut:
+        cut = opened
+    tags = re.findall(r"\[[^\[\]]{1,300}\]", line[cut:])
+    return line[:cut].rstrip() + " …" + "".join(" " + t for t in tags)
 
 
 def t3(cfg, old):
@@ -105,7 +119,7 @@ def t3(cfg, old):
     return {}
 
 
-def stale_status(cfg):
+def stale_status(cfg, newest):
     try:
         data = json.loads((HERE / "events.json").read_text())
     except (OSError, ValueError):
@@ -119,6 +133,8 @@ def stale_status(cfg):
         age = None
     limit = cfg.get("statusStaleMin", 20)
     if age is not None and age < limit:
+        return ""
+    if age is not None and newest is not None and newest <= datetime.fromisoformat(status["asOf"]).timestamp():
         return ""
     said = f"{status.get('tone', '')}: {status.get('text', '')}" + (f" · {status['note']}" if status.get("note") else "")
     return (f"STATUS set {int(age)} min ago" if age is not None else "STATUS never dated") + \
@@ -143,22 +159,29 @@ def collect():
     state = {"collected": datetime.now().astimezone().isoformat(timespec="seconds"), "files": {}, "threads": {}}
     print("COLLECTED", state["collected"], "· previous", old.get("collected", "never"))
     todo, held = [], []
+    newest = None
     for key, path in sources(cfg):
         st = path.stat()
+        newest = max(newest or 0, st.st_mtime)
         prev = old.get("files", {}).get(key, {})
         if prev.get("mtime_ns") == st.st_mtime_ns and prev.get("size") == st.st_size:
             state["files"][key] = prev
             continue
         lines = path.read_text(errors="replace").splitlines()
         hashes = [hashlib.sha1(l.encode()).hexdigest()[:16] for l in lines]
-        seen = set(prev.get("h", []))
-        new = [(l, h) for l, h in zip(lines, hashes) if h not in seen and l.strip()]
+        seen = Counter(prev.get("h", []))
+        new = []
+        for i, (l, h) in enumerate(zip(lines, hashes)):
+            if seen[h]:
+                seen[h] -= 1
+            elif l.strip():
+                new.append((l, i))
         if not prev:
             new = new[-tail:]
-        cut = len(new) - cap
-        new = new[-cap:]
+        overflow = {i for _, i in new[cap:]}
+        new = new[:cap]
         name = key if not key.startswith(("~", "/")) else "…/" + "/".join(Path(key).parts[-2:])
-        texts = [jsonl_line(l, drop) if path.suffix == ".jsonl" else l[:400] for l, _ in new]
+        texts = [jsonl_line(l, drop) if path.suffix == ".jsonl" else clip(l) for l, _ in new]
         size = sum(len(t) + 3 for t in texts) + len(name) + 60
         if size > budget and todo:
             if prev:
@@ -172,13 +195,13 @@ def collect():
             budget -= len(text) + 3
             shown.append(text)
         budget -= len(name) + 60
-        rest = {h for _, h in new[len(shown):]}
+        rest = {i for _, i in new[len(shown):]} | overflow
         state["files"][key] = {"mtime_ns": None if rest else st.st_mtime_ns, "size": st.st_size,
-                               "h": [h for h in hashes if h not in rest]}
+                               "h": [h for i, h in enumerate(hashes) if i not in rest]}
         if rest:
             held.append(f"the rest of {name} ({len(rest)} lines)")
         todo.append(f"{name} (+{len(shown)})")
-        print(f"\nSOURCE {name}  +{len(shown)} lines" + (f" ({cut} older new lines skipped)" if cut > 0 else "")
+        print(f"\nSOURCE {name}  +{len(shown)} lines"
               + ("  [first pass: tail only]" if not prev else "") + (f"  [{len(rest)} more next pass]" if rest else ""))
         for text in shown:
             print("  " + text)
@@ -189,7 +212,7 @@ def collect():
     tmp.replace(STATE)
     if held:
         print("\nHELD for the next pass (output budget): " + ", ".join(held))
-    stale = stale_status(cfg)
+    stale = stale_status(cfg, newest)
     if stale:
         print("\n" + stale)
     if todo:

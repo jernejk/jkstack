@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -122,6 +123,48 @@ class Smoke(unittest.TestCase):
         self.assertNotIn("Do not collect", result.stdout)
         result = run(sys.executable, work / "live/collect.py", env=self.env)
         self.assertNotIn("SOURCE", result.stdout)
+
+    def test_patch_dates_chapters_and_metrics_from_events(self):
+        work = self.init()
+        feed = work / "live/events.json"
+        first = json.loads(feed.read_text())["chapters"][0]
+        at = lambda h: (datetime.fromisoformat(first["start"]) + timedelta(hours=h)).isoformat(timespec="seconds")
+        patch = {"chapters": [{"ref": "two", "title": "Second pass"}],
+                 "events": [{"ref": "a", "time": at(2), "lane": "main", "kind": "start", "importance": 2, "state": "running",
+                             "chapter": "@two", "title": "Second pass starts", "summary": "Rows re-checked."},
+                            {"ref": "b", "time": at(1), "lane": "main", "kind": "success", "importance": 2,
+                             "title": "First pass clean", "summary": "No errors.", "causedBy": ["@b"]}],
+                 "metrics": [{"name": "Rows", "value": 12, "event": "@b"}]}
+        run(sys.executable, work / "live/patch.py", input=json.dumps(patch), env=self.env)
+        data = json.loads(feed.read_text())
+        b = data["events"][-1]
+        self.assertEqual(data["chapters"][-1]["start"], at(2))
+        self.assertEqual(b["chapter"], first["id"])
+        self.assertNotIn("causedBy", b)
+        self.assertEqual((data["metrics"][-1]["time"], data["metrics"][-1]["lane"]), (at(1), "main"))
+
+    def test_collector_keeps_tags_and_repeated_lines(self):
+        work = self.init()
+        config = work / "live/keeper/config.json"
+        cfg = json.loads(config.read_text())
+        cfg.update(sources=["LOG.md"])
+        config.write_text(json.dumps(cfg))
+        log = work / "LOG.md"
+        log.write_text("- 00:01 (main) [result] " + "long " * 100 + "[img: shots/a.png | A] [metric: Rows = 12]\n- Same line.\n")
+        first = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("[img: shots/a.png | A]", first)
+        self.assertIn("[metric: Rows = 12]", first)
+        with log.open("a") as f:
+            f.write("- Same line.\n")
+        second = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("Same line.", second)
+        cfg.update(maxLinesPerSource=3)
+        config.write_text(json.dumps(cfg))
+        with log.open("a") as f:
+            f.write("".join(f"- 00:0{i} (main) [result] Paged beat {i}.\n" for i in range(5)))
+        paged = run(sys.executable, work / "live/collect.py", env=self.env).stdout + \
+            run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertEqual([paged.count(f"Paged beat {i}.") for i in range(5)], [1] * 5)
 
     def test_collector_holds_overflow_and_lists_next(self):
         work = self.init()

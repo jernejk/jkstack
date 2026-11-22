@@ -55,6 +55,7 @@ def main():
     ev = sorted(d["events"], key=lambda e: t(e["time"]))
     now = datetime.now(t(ev[-1]["time"]).tzinfo) if ev else datetime.now().astimezone()
     start = t(run["start"]) if run.get("start") else (t(ev[0]["time"]) if ev else now)
+    start = min([start] + [t(ev[0]["time"])] if ev else [start])
     since = since_of(a.since, now, start)
     gone = {e["supersedes"] for e in ev if e.get("supersedes")}
     ev = [e for e in ev if e["id"] not in gone]

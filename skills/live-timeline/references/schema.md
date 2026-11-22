@@ -33,10 +33,10 @@ update for 40 min — keeper stopped?". Send `{}` at least every 20 minutes whil
 
 | Key | Does |
 |---|---|
-| `events` | Appended. Leave out `id` (assigned `e###`), `time` (defaults to now) and `chapter` (defaults to the newest). Give a `"ref": "x"` to point at it elsewhere in the same patch as `"@x"`. |
+| `events` | Appended. Leave out `id` (assigned `e###`), `time` (defaults to now) and `chapter` (defaults to the last chapter that had started by the event's `time`). Give a `"ref": "x"` to point at it elsewhere in the same patch as `"@x"`. |
 | `edit` | `{ "e012": { "state": "done" } }` merges fields into an existing event and stamps its `updated`. |
-| `chapters` | Appended; `id` is assigned (`c#`), `start` defaults to now. |
-| `metrics` | Appended; `time` defaults to now. |
+| `chapters` | Appended; `id` is assigned (`c#`). `start` defaults to the earliest event in the patch that points at it, else now: give the source line's time. |
+| `metrics` | Appended. `"event": "@ref"` takes `time` and `lane` from that event; otherwise `time` defaults to now. |
 | `lanes` | `{ "sol": "done" }` sets a lane's status. |
 | `addLanes` | `[ { "id": "models", "name": "Model comparison", "short": "Models", "status": "running" } ]` |
 | `headline` | Merged into the headline; a key set to `null` is removed. `best`, `status` and `progress` replace whole. |
@@ -150,7 +150,7 @@ acted) or `update` with `causedBy: ["e071"]`. Never leave a blocker open once th
 **Correct a mistake.** Append a new event with `"supersedes": "<old id>"`. Don't delete history. Typos can be fixed
 with `edit`.
 
-**Finish.** Final beat, every lane `done`, `"run": { "done": true }`, `status.tone` `done`.
+**Finish.** Final beat, every lane `done` (the page already counts a lane as active only while it has an open start or blocker, or wrote in the last `staleAfterMin`), `"run": { "done": true }`, `status.tone` `done`.
 
 ## Metrics
 
@@ -161,6 +161,8 @@ worth tracking: recall, precision, pass rate, items done, cost per item, error c
 { "name": "Synthetic insights", "value": 33, "of": 43, "lane": "opus", "note": "V23" }
 { "name": "Cost per audit", "value": 0.55, "unit": "US$", "lane": "opus", "better": "lower", "note": "warm cache" }
 ```
+
+When the value comes with an event, add `"event": "@ref"` so the point takes that event's time and lane.
 
 `name` groups points into one card: keep it **exactly** the same each time. `of` for fractions, `unit` for `%` or
 `US$`, `better: "lower"` when down is good. Append; never edit old points.

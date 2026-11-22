@@ -4,6 +4,7 @@
   python3 live/validate.py live/events.next.json --install
   python3 live/validate.py                      # checks live/events.json
 """
+import contextlib
 import json
 import os
 import re
@@ -57,6 +58,10 @@ def when(value):
     return t
 
 
+EVENT_KEYS = {"id", "time", "lane", "kind", "importance", "chapter", "title", "summary", "why", "ask", "detail", "numbers",
+              "links", "images", "causedBy", "state", "supersedes", "updated"}
+
+
 def safe_image_path(value):
     if not isinstance(value, str) or not value or any(c.isspace() or ord(c) < 32 for c in value):
         return False
@@ -79,9 +84,11 @@ def check(path, cfg=None):
     blocked = re.compile(BASE_BLOCKED + ("|" + cfg["blockedLinks"] if cfg.get("blockedLinks") else ""), re.I)
     lanes = {l.get("id") for l in data.get("lanes", []) if isinstance(l, dict)}
     chapters = {c.get("id") for c in data.get("chapters", []) if isinstance(c, dict)}
-    ids = set()
+    ids, times = set(), {}
     for e in data["events"]:
         if isinstance(e, dict) and e.get("id"):
+            with contextlib.suppress(Exception):
+                times[e["id"]] = when(e.get("time"))
             if e["id"] in ids:
                 errors.append(f"duplicate id {e['id']}")
             ids.add(e["id"])
@@ -113,6 +120,12 @@ def check(path, cfg=None):
         for c in e.get("causedBy", []) or []:
             if c not in ids:
                 errors.append(f"{eid}: causedBy {c!r} does not exist")
+            elif c == eid:
+                warnings.append(f"{eid}: causedBy cites itself")
+            elif c in times and eid in times and times[c] > times[eid]:
+                warnings.append(f"{eid}: causedBy {c} happened later")
+        for key in set(e) - EVENT_KEYS:
+            warnings.append(f"{eid}: unknown field {key!r}")
         if e.get("supersedes") and e["supersedes"] not in ids:
             errors.append(f"{eid}: supersedes {e['supersedes']!r} does not exist")
         if e.get("state"):

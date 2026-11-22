@@ -26,12 +26,12 @@ The orchestrator writes it. Lanes can append their own lines too.
 | `[blocked: what the owner must do]` | `blocked` with that `ask` |
 | `[cleared]` | the open blocker on that lane is cleared |
 | `[done: title or id]` | that start is set to `done` |
-| `[metric: Name = value unit]` | a point in `metrics`; keep the name identical every time |
+| `[metric: Name = value unit]` | a point in `metrics` with `"event": "@ref"` for the line's event (or the line's `time`); keep the name identical every time |
 | `[snap: target …]` | run the snapshot command from the header and attach the images; tagging a page vouches that it is safe to show |
 | `[status: good\|warn\|bad\|done text]` | `headline.status` |
 | `[progress: 3/6 label]` | `headline.progress` |
 | `[best: text]` | `headline.best`, pointing at this event |
-| `[chapter: Title — one-sentence summary]` | a new chapter that starts here |
+| `[chapter: Title — one-sentence summary]` | a new chapter that starts here: copy the title and summary as written, `start` = the line's time |
 | `[end]` | the run is over |
 | none | an `update`, importance 1 |
 
