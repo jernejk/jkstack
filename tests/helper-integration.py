@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Integration checks with a local NuGet source and generated video; no network sources."""
+import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -10,7 +12,50 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def live_timeline_lead_log_cycle():
+    with tempfile.TemporaryDirectory(prefix="jkstack-live-") as tmp:
+        work = Path(tmp) / "work"
+        env = dict(os.environ, HOME=tmp, PYTHONDONTWRITEBYTECODE="1")
+        py = lambda *a, **k: subprocess.run([sys.executable, *map(str, a)], env=env, capture_output=True, text=True, timeout=60, **k)
+        live = lambda name, *a, **k: py(work / "live" / name, *a, **k)
+        init = py(ROOT / "skills/live-timeline/scripts/init.py", work, "--owner", "Owner", "--lanes", "build:Build lane",
+                  "--tz", "+10:00", "--empty", "--lead-log", "LEAD-LOG.md")
+        assert init.returncode == 0, init.stdout + init.stderr
+        log = work / "LEAD-LOG.md"
+        log.write_text("# Lead log: demo (2026-11-20, UTC+10)\n\n"
+                       "- 23:30 (build/opus) [chapter: Core loop - Build the loop.] [start] Opus builds the loop.\n"
+                       "- 23:50 (owner) [nudge] Owner: keep it small.\n"
+                       "- 00:10 (build) [result] [done: Opus builds the loop] Loop passes 40 tests. [metric: Loop tests = 40]\n")
+        first = live("collect.py")
+        assert "DRAFT from LEAD-LOG.md: 3 beats" in first.stdout, first.stdout + first.stderr
+        assert live("collect.py").stdout.count("d3 Sat 00:10") == 1, "a pass must repeat until patch.py commits it"
+        fill = {"draft": True, "fill": {"d1": {"title": "Opus builds the loop"}, "d3": {"title": "Loop passes 40 tests", "causedBy": ["@d1"]}}}
+        patched = live("patch.py", input=json.dumps(fill))
+        assert patched.returncode == 0, patched.stdout + patched.stderr
+        assert json.loads(patched.stdout.splitlines()[-1])["committed"] is True
+        assert "SOURCE" not in live("collect.py").stdout
+        live("patch.py", input="{}")
+        with log.open("a") as f:
+            f.write("- 00:30 (build) [start] Opus starts the screens. [thread: th_1]\n")
+        woke = live("collect.py", "--wait", "1m")
+        assert "d1 00:30" in woke.stdout, woke.stdout
+        patched = live("patch.py", input='{"draft": true}')
+        assert patched.returncode == 0, patched.stdout + patched.stderr
+        feed = json.loads((work / "live/events.json").read_text())
+        start = feed["events"][0]
+        assert (start["state"], start["end"], start["model"]) == ("done", "2026-11-21T00:10:00+10:00", "opus"), start
+        assert feed["events"][-1]["thread"] == "th_1" and feed["metrics"][0]["value"] == 40
+        edit = live("patch.py", input=json.dumps({"editChapters": {"c1": {"digest": "Loop built.", "keyBeats": ["e003"]}}}))
+        assert edit.returncode == 0, edit.stdout + edit.stderr
+        assert "digest: Loop built." in live("digest.py").stdout and "Loop built." in live("brief.py", "--since", "all").stdout
+        assert live("validate.py").returncode == 0
+        quiet = live("collect.py", "--wait", "1s")
+        assert "QUIET for 1 s: nothing new." in quiet.stdout, quiet.stdout
+        print("PASS live timeline: lead-log draft, fill, staged cursor, wait, digest in one cycle")
+
+
 def main():
+    live_timeline_lead_log_cycle()
     with tempfile.TemporaryDirectory(prefix="jkstack-helper-") as tmp:
         folder = Path(tmp)
         home = folder / "home"

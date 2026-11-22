@@ -6,11 +6,16 @@
    "edit": {"e012": {"state": "done"}}, "headline": {"best": {"text": "...", "eventId": "@a"}}}
   EOF
 
-Keys: events, edit, chapters, metrics, lanes ({id: status}), addLanes, headline (merged; null deletes), run (merged).
+Keys: events, edit, chapters, editChapters ({c4: {digest, keyBeats}}), metrics, lanes ({id: status}), addLanes,
+headline (merged; null deletes), run (merged), draft + fill (apply keeper/draft.json from collect.py, then fill/skip its beats).
 Sending headline.status stamps its asOf, which collect.py uses to flag a stale status.
-New events and chapters get the next id; "@ref" anywhere in the patch resolves to the id given to that ref.
+New events and chapters get the next id; "@ref" anywhere in the patch (also as an edit key) resolves to the id given to that ref.
+A start edited to done/failed gets an `end`: the latest event it caused in this patch, else now.
+A successful install also commits the pass collect.py staged (keeper/state.next.json -> state.json).
 """
+import difflib
 import json
+import os
 import re
 import sys
 from datetime import datetime, timedelta, timezone
@@ -23,6 +28,11 @@ import validate  # noqa: E402
 
 FEED = HERE / "events.json"
 NEXT = HERE / "events.next.json"
+KEEPER = HERE / "keeper"
+DRAFT = KEEPER / "draft.json"
+STATE = KEEPER / "state.json"
+STAGED = KEEPER / "state.next.json"
+FILL_KEYS = {"title", "summary", "causedBy", "importance", "why", "images", "skip"}
 
 
 def now_iso(tz):
@@ -68,6 +78,60 @@ def merge(dst, src):
             merge(dst[k], v)
         else:
             dst[k] = v
+
+
+def drop_skipped(draft, skipped):
+    tags = {"@" + r for r in skipped}
+    by_ref = {e["ref"]: e for e in draft.get("events", []) if e.get("ref") in skipped}
+    draft["events"] = [e for e in draft.get("events", []) if e.get("ref") not in skipped]
+    for e in draft["events"]:
+        if isinstance(e.get("causedBy"), list):
+            e["causedBy"] = [c for c in e["causedBy"] if c not in tags]
+            if not e["causedBy"]:
+                e.pop("causedBy")
+    for m in draft.get("metrics", []):
+        if m.get("event") in tags:
+            src = by_ref[m.pop("event")[1:]]
+            m.setdefault("time", src["time"])
+            m.setdefault("lane", src["lane"])
+    best = (draft.get("headline") or {}).get("best")
+    if best and best.get("eventId") in tags:
+        best.pop("eventId")
+    draft["edit"] = {k: v for k, v in (draft.get("edit") or {}).items() if k not in tags}
+
+
+def apply_draft(patch):
+    try:
+        draft = json.loads(DRAFT.read_text())
+    except (OSError, ValueError):
+        raise SystemExit("draft: no readable live/keeper/draft.json; run collect.py first")
+    draft.pop("meta", None)
+    refs = {e["ref"]: e for e in draft.get("events", []) if e.get("ref")}
+    skipped = set()
+    for ref, fields in (patch.get("fill") or {}).items():
+        if ref not in refs:
+            raise SystemExit(f"fill: no draft beat {ref}")
+        if not isinstance(fields, dict) or set(fields) - FILL_KEYS:
+            raise SystemExit(f"fill {ref}: unknown key(s) {', '.join(sorted(set(fields) - FILL_KEYS)) if isinstance(fields, dict) else fields!r}; allowed: {', '.join(sorted(FILL_KEYS))}")
+        if fields.get("skip"):
+            skipped.add(ref)
+            continue
+        for k, v in fields.items():
+            if k == "images":
+                refs[ref]["images"] = (refs[ref].get("images") or []) + list(v)
+            elif k != "skip":
+                refs[ref][k] = v
+    drop_skipped(draft, skipped)
+    rest = {k: v for k, v in patch.items() if k not in ("draft", "fill")}
+    out = {k: draft.get(k, []) + rest.get(k, []) for k in ("chapters", "addLanes", "events", "metrics")}
+    out["edit"] = {k: dict(v) for k, v in (draft.get("edit") or {}).items()}
+    for k, v in (rest.get("edit") or {}).items():
+        out["edit"].setdefault(k, {}).update(v)
+    for k in ("lanes", "headline", "run", "editChapters"):
+        out[k] = {}
+        for part in (draft.get(k) or {}, rest.get(k) or {}):
+            merge(out[k], part)
+    return out
 
 
 def refresh_spend(data, cfg, now):
@@ -118,6 +182,11 @@ def main():
     data = json.loads(FEED.read_text())
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     patch = json.loads(raw) if raw.strip() else {}
+    used_draft = bool(patch.get("draft"))
+    if used_draft:
+        patch = apply_draft(patch)
+    elif patch.get("fill"):
+        raise SystemExit('fill needs {"draft": true}')
     now = now_iso((data.get("run") or {}).get("tz"))
     refs = {}
 
@@ -155,11 +224,29 @@ def main():
             e["chapter"] = chapter_at(data["chapters"], e["time"])
     data["events"].extend(pending)
     for eid, changes in resolve(patch.get("edit", {}), refs).items():
+        eid = resolve(eid, refs)
         event = next((e for e in data["events"] if e["id"] == eid), None)
         if not event:
             raise SystemExit(f"edit: no event {eid}")
+        if event.get("kind") == "start" and event.get("state") == "running" and changes.get("state") in ("done", "failed") \
+                and "end" not in changes and "end" not in event:
+            caused = [e["time"] for e in pending if eid in (e.get("causedBy") or [])]
+            changes = {**changes, "end": max(caused, key=validate.when) if caused else now}
         event.update(changes)
         event["updated"] = now
+    for cid, changes in resolve(patch.get("editChapters", {}), refs).items():
+        chapter = next((c for c in data.get("chapters", []) if c["id"] == cid), None)
+        if not chapter:
+            raise SystemExit(f"editChapters: no chapter {cid}")
+        merge(chapter, changes)
+    names = {m.get("name") for m in data.get("metrics", [])}
+    for m in patch.get("metrics", []):
+        name = m.get("name")
+        if name and name not in names:
+            near = next((n for n in sorted(names, key=str) if n and difflib.SequenceMatcher(None, name, n).ratio() >= 0.8), None)
+            if near:
+                print(f'warn: metric "{name}" looks like existing "{near}"; keep names identical')
+            names.add(name)
     for m in resolve(patch.get("metrics", []), refs):
         source = next((e for e in data["events"] if e["id"] == m.get("event")), None) if m.get("event") else None
         if m.get("event") and not source:
@@ -194,10 +281,15 @@ def main():
         sys.exit(1)
     validate.install(NEXT)
     NEXT.unlink()
+    committed = STAGED.exists()
+    if committed:
+        os.replace(STAGED, STATE)
+    if used_draft or committed:
+        DRAFT.unlink(missing_ok=True)
     blockers = [e["id"] for e in data["events"] if e.get("kind") == "blocked" and e.get("state") != "cleared"]
     running = [e["id"] for e in data["events"] if e.get("kind") == "start" and e.get("state") == "running"]
     print(json.dumps({"installed": True, "events": len(data["events"]), "new": [e["id"] for e in pending], "refs": refs,
-                      "running": running, "openBlockers": blockers, "spend": (data.get("headline") or {}).get("spend", {}).get("usd")}))
+                      "running": running, "openBlockers": blockers, "committed": committed, "spend": (data.get("headline") or {}).get("spend", {}).get("usd")}))
 
 
 if __name__ == "__main__":

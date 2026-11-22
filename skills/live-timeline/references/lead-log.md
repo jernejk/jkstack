@@ -1,6 +1,8 @@
 # The lead log
 
-A plain Markdown file the work writes as it goes, one line per beat. The keeper turns each line into a timeline event. Because the writer already knows what happened, the keeper only has to translate, so a cheap model keeps a good story for few tokens.
+A plain Markdown file the work writes as it goes, one line per beat. `collect.py` parses each new line into a draft event itself (time, lane, model, kind, state, chapter, metrics, images, status), so the keeper only writes short titles and links results to their starts. A cheap model keeps a good story for few tokens, and the facts never pass through it.
+
+Set `"leadLog": "LEAD-LOG.md"` in `live/keeper/config.json` (`init.py --lead-log LEAD-LOG.md` does it).
 
 The orchestrator writes it. Lanes can append their own lines too.
 
@@ -8,11 +10,13 @@ The orchestrator writes it. Lanes can append their own lines too.
 
 ```text
 - HH:MM (lane) [tag] One line that already reads as the event's summary, with the number that matters.
+- HH:MM (lane/model) [start] The same, naming the model that does the work.
 ```
 
-- `HH:MM`: when it happened, in the run's timezone. Oldest first. Append; never rewrite a line.
-- `(lane)`: a lane id from the feed.
+- `HH:MM`: when it happened, in the run's timezone. Append; never rewrite a line. A time more than 6 h earlier than the line before means the next day; `[date: YYYY-MM-DD]` sets the day outright.
+- `(lane)`: a lane id from the feed (an unknown id becomes a new lane). `(lane/model)` also records the model: write it on every `[start]`, so the page can show which models ran, where and for how long.
 - `[tag]`: any number of them, anywhere on the line.
+- Indented lines under a beat belong to it. Anything else that isn't a beat is shown to the keeper as `UNPARSED`.
 
 | Tag | Becomes |
 |---|---|
@@ -23,15 +27,20 @@ The orchestrator writes it. Lanes can append their own lines too.
 | `[decision]` | `decision` |
 | `[nudge]` | `nudge` on the owner's lane |
 | `[review]` | `review`, with the reviewer's start set to `done` |
-| `[blocked: what the owner must do]` | `blocked` with that `ask` |
+| `[blocked: what the owner must do]` | `blocked` with that `ask` (`[blocker: …]` too; a bare `[blocker]` stays text) |
+| `[ask: question \| choice A \| choice B]` | `blocked`, with the question as `ask` and the options as `choices`: use it whenever the work waits on the owner's pick |
 | `[cleared]` | the open blocker on that lane is cleared |
-| `[done: title or id]` | that start is set to `done` |
+| `[done: title or id]` | that start is set to `done` (an id, or words from its title; unmatched ones are listed for the keeper) |
 | `[metric: Name = value unit]` | a point in `metrics` with `"event": "@ref"` for the line's event (or the line's `time`); keep the name identical every time |
 | `[snap: target …]` | run the snapshot command from the header and attach the images; tagging a page vouches that it is safe to show |
 | `[status: good\|warn\|bad\|done text]` | `headline.status` |
 | `[progress: 3/6 label]` | `headline.progress` |
 | `[best: text]` | `headline.best`, pointing at this event |
 | `[chapter: Title — one-sentence summary]` | a new chapter that starts here: copy the title and summary as written, `start` = the line's time |
+| `[key]` | importance 3: one of the few beats that belong in the run's summary |
+| `[img: path \| caption]` | an image you have reviewed, relative to the work folder; `collect.py` makes the thumbnail |
+| `[model: name]` | the model, when the lane slot doesn't carry it |
+| `[thread: id]` | the T3 thread doing the work, so the page can link to it |
 | `[end]` | the run is over |
 | none | an `update`, importance 1 |
 
@@ -51,11 +60,12 @@ Snapshots: python3 live/snap.py --name HHMM-<target> --before <old URL> --after 
 ## Example
 
 ```text
-- 00:31 (lead) [start] Three read-only reviews start: visual polish, engine power use, copy.
+- 00:31 (lead/opus) [start] Three read-only reviews start: visual polish, engine power use, copy.
 - 00:41 (lead) [breakthrough] With the GPU on, a transform glide costs 4.6% of a core; the old repainting glow 15.8%.
 - 00:46 (lead) [result] The glow drifts smoothly again, within 4/255 of the old frame. [metric: Idle CPU = 6.5 %]
 - 00:50 (lead) [result] Options menu replaces four buttons; the corner badge is gone. [snap: cover options]
 - 00:52 (owner) [nudge] Owner: keep tonight on a live timeline with a cheap keeper.
+- 01:12 (lead) [ask: Which glow ships? | Soft | Sharp] Both glows pass; the owner picks one.
 - 01:30 (lead) [status: good On track] [progress: 5/6 asks done]
 ```
 
@@ -63,5 +73,5 @@ Snapshots: python3 live/snap.py --name HHMM-<target> --before <old URL> --after 
 
 - The facts, times and numbers come from the one agent that knows them, so the keeper can't invent them.
 - Tags make each beat's kind explicit, which leaves the keeper only to reformat.
-- One file and one cursor: `collect.py` shows only the new lines, so each cycle costs a few hundred tokens of input.
+- One file and one cursor: `collect.py` shows only the new lines as a draft, so each cycle costs a few hundred tokens of input, and `collect.py --wait` returns only when something changed.
 - Status gets its own trigger: write `[status: …]` when the headline should change, and `collect.py` flags a status older than 20 minutes.

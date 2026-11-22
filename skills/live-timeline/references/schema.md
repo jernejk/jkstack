@@ -34,7 +34,9 @@ update for 40 min — keeper stopped?". Send `{}` at least every 20 minutes whil
 | Key | Does |
 |---|---|
 | `events` | Appended. Leave out `id` (assigned `e###`), `time` (defaults to now) and `chapter` (defaults to the last chapter that had started by the event's `time`). Give a `"ref": "x"` to point at it elsewhere in the same patch as `"@x"`. |
-| `edit` | `{ "e012": { "state": "done" } }` merges fields into an existing event and stamps its `updated`. |
+| `edit` | `{ "e012": { "state": "done" } }` merges fields into an existing event and stamps its `updated`. Closing a start stamps its `end` (the latest new event that names it in `causedBy`, else now). |
+| `editChapters` | `{ "c4": { "digest": "…", "outcome": "…", "keyBeats": ["e101"] } }` merges into a chapter. |
+| `draft` | `true` applies `live/keeper/draft.json`, the patch `collect.py` drafted from the lead log; `fill` adds titles and links per draft beat (see the keeper brief). |
 | `chapters` | Appended; `id` is assigned (`c#`). `start` defaults to the earliest event in the patch that points at it, else now: give the source line's time. |
 | `metrics` | Appended. `"event": "@ref"` takes `time` and `lane` from that event; otherwise `time` defaults to now. |
 | `lanes` | `{ "sol": "done" }` sets a lane's status. |
@@ -51,7 +53,8 @@ running starts and open blockers are the ones you expect.
 {
   "schema": 2,
   "updated": "2026-11-04T21:10:00+10:00",
-  "run":      { "title": "…", "owner": "Owner", "tz": "UTC", "start": "…", "staleAfterMin": 30 },
+  "run":      { "title": "…", "owner": "Owner", "tz": "UTC", "start": "…", "staleAfterMin": 30,
+                "t3": { "env": "…", "thread": "…" }, "digest": ["…"] },
   "headline": { "status": {…}, "progress": {…}, "best": {…}, "spend": {…} },
   "lanes":    [ … ], "chapters": [ … ], "events": [ … ], "metrics": [ … ]
 }
@@ -72,12 +75,25 @@ Open blockers take over the third cell ("Needs you"), so the owner sees them fir
 ### `lanes`
 
 `{ "id": "sol", "name": "Sol lane", "short": "Sol", "status": "running" }`. `short` is 8 characters or fewer.
-`status` is `running`, `done` or `paused`. The owner's lane has `"human": true` and is not counted as running.
-Array order is track order.
+`status` is `running`, `done` or `paused`; the page decides what is active from open starts, open blockers and recent
+beats, so `status` only matters as an override. The owner's lane has `"human": true` and is never counted. Array order
+is track order. Optional `model` and `thread` (a T3 thread id) are defaults; the newest event's `model` and `thread` win.
+
+### `run.t3`
+
+`{ "env": "<environment id>", "thread": "<lead thread id>" }` turns on "Open in T3" links: the header, "Needs you"
+(answer in the lead's thread) and lanes whose events carry a `thread`. `init.py` fills it when it runs inside T3 Code.
+The links open the T3 desktop app (`t3code://threads/<env>/<thread>`); set `"base"` to an `https://…/threads/` URL
+for a hosted T3 instead.
 
 ### `chapters`
 
 `{ "id": "c4", "title": "Convergence", "start": "…", "summary": "One sentence: what this part is about." }`
+
+The story layer is optional: `digest` (2–3 plain sentences: what happened and how it turned out), `outcome` (one line),
+`keyBeats` (up to 4 event ids from this chapter, shown in Story view) and `end`. Without them the page picks the key
+beats itself: open blockers, breakthroughs, dead ends, owner nudges, reviews, then successes. `run.digest` holds up
+to three lines for the whole run. `digest.py` prints what a model needs to write them; see "Simplify the story".
 
 A chapter is a turn in the story, not a clock slot: a new phase, a new question, a decisive steer. Expect one every
 hour or two on a night run, one or two a day on a multi-day run. Titles are two to four plain words.
@@ -100,10 +116,17 @@ hour or two on a night run, one or two a day on a multi-day run. Titles are two 
 | `links` | optional | `[{ "label": "Findings", "path": "sol/FINDINGS.md" }]`, relative to the work folder. `private/`, absolute and `..` paths are refused. HTTPS evidence links are allowed; inspect their destination before sharing. |
 | `causedBy` | optional | Ids this grew out of: drawn as arcs, listed as "Came from" / "Led to". |
 | `state` | `start`, `blocked` | `start`: `running` draws a live bar to now; `done`/`failed` stops it. `blocked`: `open` (default) or `cleared`. |
+| `end` | on `start` | When it finished; `patch.py` stamps it when the start closes. The ribbon draws the start as a bar. |
+| `model` | optional | The model doing the work (`opus`, `gpt-6-luna`). Shown on the card and totalled per model. Put it on starts. |
+| `thread` | optional | The T3 thread doing the work; links the lane to it. |
+| `choices` | on `blocked` | 2–6 short options when the owner must pick one: shown under "Needs you". |
 | `supersedes` | optional | The id this corrects. The old one leaves the story and shows as "Replaces". |
 
-**Importance.** `3` for at most two or three events an hour (a few a day on long runs): the ones you'd put in the
-biography. `2` for anything that changes what a lane does next. `1` for progress, repeats and housekeeping.
+**Importance.** `3` only for breakthroughs, blockers and beats the lead tags `[key]`: a few a day. `2` for anything that
+changes what a lane does next. `1` for progress, repeats and housekeeping.
+
+**`causedBy`** links an outcome to the start or nudge it came from. Don't chain each event to the one before it: an arc
+that only says "this came next" is noise.
 
 ### Kinds
 
@@ -152,6 +175,11 @@ with `edit`.
 
 **Finish.** Final beat, every lane `done` (the page already counts a lane as active only while it has an open start or blocker, or wrote in the last `staleAfterMin`), `"run": { "done": true }`, `status.tone` `done`.
 
+**Simplify the story** (after the run, or when a chapter closes). `python3 live/digest.py --missing` prints each
+chapter's beats compactly; write `editChapters` with a `digest`, `outcome` and up to four `keyBeats` per chapter, plus
+`run.digest`. Copy facts and numbers from the beats; don't add new ones. Finished runs and runs over 120 events open
+in Story view, which shows one card per chapter; Highlights shows the key beats in full and Full shows everything.
+
 ## Metrics
 
 The "Measures" panel appears once `metrics` has an entry. Add a point whenever a source reports a concrete value
@@ -164,7 +192,8 @@ worth tracking: recall, precision, pass rate, items done, cost per item, error c
 
 When the value comes with an event, add `"event": "@ref"` so the point takes that event's time and lane.
 
-`name` groups points into one card: keep it **exactly** the same each time. `of` for fractions, `unit` for `%` or
+`name` groups points into one card: keep it **exactly** the same each time (`patch.py` warns about near-duplicates).
+A name with a single point shows as a chip, not a card. `of` for fractions, `unit` for `%` or
 `US$`, `better: "lower"` when down is good. Append; never edit old points.
 
 ## Style guide
