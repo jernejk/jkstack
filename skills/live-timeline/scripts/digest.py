@@ -63,9 +63,14 @@ def main():
             sys.exit(f"no chapter {', '.join(pick)}")
     if "--missing" in args:
         chapters = [c for c in chapters if not c.get("digest")]
+    starts = sorted((t(c["start"]), i, c["id"]) for i, c in enumerate(data.get("chapters", [])) if c.get("start"))
+    replaced = {e["supersedes"] for e in data.get("events", []) if e.get("supersedes")}
     by = {}
-    for e in sorted(data.get("events", []), key=lambda e: e["time"]):
-        by.setdefault(e.get("chapter"), []).append(e)
+    for e in sorted(data.get("events", []), key=lambda e: t(e["time"])):
+        if e["id"] in replaced:
+            continue
+        home = e.get("chapter") or next((cid for at, _, cid in reversed(starts) if at <= t(e["time"])), None)
+        by.setdefault(home, []).append(e)
     out = [block(c, by.get(c["id"], [])) for c in chapters]
     if not out:
         print("Every chapter already has a digest." if "--missing" in args else "No chapters.")

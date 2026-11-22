@@ -30,17 +30,21 @@ def local_tz():
         return ""
 
 
+def safe_id(value):
+    return bool(re.fullmatch(r"[A-Za-z0-9_:%.-]{1,200}", value)) and not re.search(r"\.\.|%2[ef]|%5c", value, re.I)
+
+
 def t3_detect(a):
     """run.t3 for this thread, and the thread id; (None, None) outside T3 or with --no-t3."""
     thread = None if a.no_t3 else (a.t3_thread or os.environ.get("T3CODE_THREAD_ID") or "").strip()
-    if not thread or not re.fullmatch(r"[A-Za-z0-9_:%.-]{1,200}", thread):
+    if not thread or not safe_id(thread):
         return None, None
     home = Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3").expanduser()
     try:
         env = (home / "userdata/environment-id").read_text().strip()
     except OSError:
         return None, thread
-    return ({"env": env, "thread": thread} if re.fullmatch(r"[A-Za-z0-9_:%.-]{1,200}", env) else None), thread
+    return ({"env": env, "thread": thread} if safe_id(env) else None), thread
 
 
 def now_iso(tz):

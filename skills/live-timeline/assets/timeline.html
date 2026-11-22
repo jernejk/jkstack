@@ -555,7 +555,10 @@ function normalize(raw) {
   };
 }
 
+let loading = false;
 async function load() {
+  if (loading) return;
+  loading = true;
   try {
     const r = await fetch(FEED, { cache: 'no-cache' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -570,7 +573,7 @@ async function load() {
       if (cached) { try { data = normalize(JSON.parse(cached)); lastGoodAt = +ls.get('lastAt') || null; feedState = 'stale'; } catch {} }
     }
     console.warn('[timeline] feed unreadable, keeping last good copy:', err.message);
-  }
+  } finally { loading = false; }
   render();
 }
 
@@ -597,12 +600,13 @@ function derive() {
     const li = lanes.get(e.lane);
     if (!li) continue;
     li.last = e.t; li.beats++;
+    const model = e.model || (e.kind === 'start' ? data.laneMap[e.lane]?.model : '');
     if (e.model) li.model = e.model;
     if (e.thread) li.thread = e.thread;
     if (e.kind === 'start') { li.starts++; li.iv.push([e.t, spanEnd(e)]); if (isRunning(e) && li.since == null) li.since = e.t; }
-    if (!e.model) continue;
-    const key = e.model.toLowerCase();
-    if (!models.has(key)) models.set(key, { name: modelName(e.model), starts: [], lanes: new Set(), iv: [], live: false, beats: 0 });
+    if (!model) continue;
+    const key = model.toLowerCase();
+    if (!models.has(key)) models.set(key, { name: modelName(model), starts: [], lanes: new Set(), iv: [], live: false, beats: 0 });
     const m = models.get(key);
     m.beats++; m.lanes.add(e.lane);
     if (e.kind === 'start') { m.starts.push(e); m.iv.push([e.t, spanEnd(e)]); if (isRunning(e)) m.live = true; }
@@ -613,7 +617,7 @@ function derive() {
 }
 const modelName = m => /^[a-z]+$/.test(m) ? m[0].toUpperCase() + m.slice(1) : m;
 const dur = ms => { const m = Math.round(ms / 60e3); return m < 60 ? m + ' min' : m < 600 ? (m / 60).toFixed(1).replace(/\.0$/, '') + ' h' : Math.round(m / 60) + ' h'; };
-const T3_ID = /^[A-Za-z0-9_:%.-]{1,200}$/;
+const T3_ID = { test: id => /^[A-Za-z0-9_:%.-]{1,200}$/.test(id) && !/\.\.|%2e|%2f|%5c/i.test(id) };
 function t3Href(thread) {
   const t3 = data.run.t3;
   thread = thread || t3?.thread;
@@ -693,7 +697,7 @@ function renderZoom() {
 let ribQuiet = 0;
 function domain() {
   const now = Date.now();
-  const last = data.events.length ? data.events[data.events.length - 1].t : now;
+  const last = Math.max(data.events.length ? data.events[data.events.length - 1].t : now, ...data.events.map(e => e.end).filter(Number.isFinite));
   let end = data.run.done ? last : Math.max(now, last);
   const win = { '1d': 24 * H, '2h': 2 * H, '30m': 30 * 60e3 }[zoom];
   ribQuiet = 0;
@@ -981,7 +985,7 @@ const expanded = new Set();
 const KRANK = { blocked: 0, breakthrough: 1, fail: 2, nudge: 3, sealed: 3, review: 4, success: 5, decision: 6, start: 7, update: 8, spend: 9 };
 function pickKeys(c, evs, D, n = 4) {
   if (c.keyBeats && c.keyBeats.length) { const ids = new Set(c.keyBeats); const k = evs.filter(e => ids.has(e.id)); if (k.length) return k; }
-  const ranked = evs.filter(e => e.kind !== 'spend').sort((a, b) => D.isBlocked(b) - D.isBlocked(a) || KRANK[a.kind] - KRANK[b.kind] || b.importance - a.importance || a.t - b.t);
+  const ranked = evs.filter(e => e.kind !== 'spend').sort((a, b) => D.isBlocked(b) - D.isBlocked(a) || (b.importance === 3) - (a.importance === 3) || KRANK[a.kind] - KRANK[b.kind] || b.importance - a.importance || a.t - b.t);
   const pick = [], per = {};
   for (const e of ranked) { if (pick.length >= n) break; if ((per[e.kind] || 0) >= 2) continue; per[e.kind] = (per[e.kind] || 0) + 1; pick.push(e); }
   for (const e of ranked) { if (pick.length >= n) break; if (!pick.includes(e)) pick.push(e); }
@@ -1154,9 +1158,12 @@ function safeImagePath(value) {
 }
 function safeHref(p) {
   p = String(p).replace(/&amp;/g, '&');
-  if (/^https:\/\//i.test(p)) return esc(p);
-  if (BLOCKED_LINK.test(p) || /^[a-z]+:/i.test(p)) return null;
-  return esc(p);
+  let u;
+  try { u = new URL(p, location.href); } catch { return null; }
+  if (/^https:\/\//i.test(p)) return u.protocol === 'https:' ? esc(p) : null;
+  const dir = location.pathname.replace(/[^/]*$/, '');
+  if (/[\x00-\x20\\]|%2e|%2f|%5c/i.test(p) || /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(p) || BLOCKED_LINK.test(p)) return null;
+  return u.origin === location.origin && u.pathname.startsWith(dir) ? esc(p) : null;
 }
 function showModal() {
   const m = $('#modal');

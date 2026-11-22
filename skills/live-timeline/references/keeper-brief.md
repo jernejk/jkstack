@@ -26,7 +26,7 @@ Folder: `<absolute work folder>`. Run every command from there. Feed: `live/even
 
 ## Each cycle
 1. `python3 live/collect.py --wait <20m>` returns as soon as a source changes (or prints `QUIET` after 20 minutes). It prints the new lead-log lines as a **draft**: `d1 19:59 build/opus start running · summary`. Times, lanes, models, kinds, chapters, metrics, images, status and closed starts are already in it.
-2. Send one patch: `{"draft": true, "fill": {"d1": {"title": "…", "causedBy": ["e120"]}, …}}`.
+2. Send one patch: `{"draft": true, "fill": {"d1": {"title": "…", "causedBy": ["e120"]}, …}}`. Until it installs, the same draft comes back; a patch without `"draft": true` leaves it pending.
    - `title`: 8 plain words or fewer, from the summary. Drafts already carry a rough title; replace it.
    - `causedBy`: only from an outcome (result, fail, review, breakthrough) to the start or nudge it came from, using ids from `recent.py` (or `@d2` for a beat in the same draft). Leave it out when nothing earlier caused it. Never chain a beat to the one before it.
    - Optional: a shorter `summary`, a `why` on importance-3 beats, `{"skip": true}` for a line that isn't worth a beat.

@@ -149,6 +149,14 @@ def story_and_lanes(browser, html, feed):
             e.update(model="opus" if lane == "build" else "luna", state="done", end=stamp(t + timedelta(minutes=30)), thread=f"{lane}-thread")
         events.append(e)
     events[-1].update(kind="blocked", importance=3, ask="Pick the art style.", choices=["Neon", "Paper", "Pixel"])
+    events[60].update(kind="update", importance=3, title="Key update")
+    events[2]["links"] = [{"label": "ok", "path": "reports/ok.md"}, {"label": "space", "path": " demo:example"},
+                          {"label": "plus", "path": "demo+foo:example"}, {"label": "dots", "path": "%2e%2e/up.md"},
+                          {"label": "web", "path": "https://example.com/x"}]
+    feed["lanes"][2]["model"] = "haiku"
+    for e in events:
+        if e["lane"] == "test" and e["kind"] == "start":
+            e.pop("model", None)
     events[-2].update(kind="start", state="running", model="opus", thread="build-thread")
     feed["events"], feed["metrics"] = events, []
     for width in (390, 1280):
@@ -176,7 +184,14 @@ def story_and_lanes(browser, html, feed):
         assert page.locator(".l-row").count() == 2 and page.locator(".mo").count() == 2
         assert "running" in page.locator(".l-row").first.inner_text() or "running" in page.locator(".l-row").nth(1).inner_text()
         assert page.locator(".rib-span").count() > 0, "closed starts draw as bars"
+        assert "Key update" in page.locator('.chapter[data-ch="c2"] .keys').inner_text(), "[key] beats outrank ordinary results"
+        assert page.locator(".mo-n span", has_text="Haiku").count() == 1, "a lane's default model counts its unlabelled starts"
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.locator('.chapter[data-ch="c1"] .keys button').first.click()
+        page.locator("#mTitle").wait_for()
+        hrefs = page.evaluate("[...document.querySelectorAll('#sheet .links a')].map(a => a.getAttribute('href'))")
+        assert hrefs == ["reports/ok.md", "https://example.com/x"], hrefs
+        page.keyboard.press("Escape")
         page.locator('[data-view="highlights"]').click()
         assert 3 <= page.locator(".beat").count() <= 12
         page.locator('[data-view="full"]').click()

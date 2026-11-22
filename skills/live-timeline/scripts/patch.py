@@ -9,10 +9,15 @@
 Keys: events, edit, chapters, editChapters ({c4: {digest, keyBeats}}), metrics, lanes ({id: status}), addLanes,
 headline (merged; null deletes), run (merged), draft + fill (apply keeper/draft.json from collect.py, then fill/skip its beats).
 Sending headline.status stamps its asOf, which collect.py uses to flag a stale status.
-New events and chapters get the next id; "@ref" anywhere in the patch (also as an edit key) resolves to the id given to that ref.
+New events and chapters get the next id; "@ref" resolves to the id given to that ref, but only where an id belongs: causedBy, supersedes,
+chapter, a metric's event, headline.best.eventId, headline.latestBreakthroughId, edit and editChapters keys, keyBeats. A ref declared
+twice in one patch is an error.
 A start edited to done/failed gets an `end`: the latest event it caused in this patch, else now.
-A successful install also commits the pass collect.py staged (keeper/state.next.json -> state.json).
+A successful install also commits the pass collect.py staged (keeper/state.next.json -> state.json), stamping the feed with that
+pass's batch id. {"draft": true} needs draft.json and state.next.json from the same pass; a patch without it leaves a pending draft
+(and the cursor) alone.
 """
+import copy
 import difflib
 import json
 import os
@@ -58,16 +63,31 @@ def chapter_at(chapters, time):
     return max(started, key=lambda c: validate.when(c["start"]))["id"] if started else chapters[0]["id"]
 
 
-def resolve(value, refs):
+def ref(value, refs):
     if isinstance(value, str) and value.startswith("@"):
         if value[1:] not in refs:
             raise SystemExit(f"unknown ref {value}")
         return refs[value[1:]]
     if isinstance(value, list):
-        return [resolve(v, refs) for v in value]
-    if isinstance(value, dict):
-        return {k: resolve(v, refs) for k, v in value.items()}
+        return [ref(v, refs) for v in value]
     return value
+
+
+def fields(item, names, refs):
+    return {k: ref(v, refs) if k in names else v for k, v in item.items()}
+
+
+def declare(refs, name, eid):
+    if name in refs:
+        raise SystemExit(f"ref {name} is declared twice")
+    refs[name] = eid
+
+
+def batch_of(path):
+    try:
+        return json.loads(path.read_text()).get("batch")
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def merge(dst, src):
@@ -106,6 +126,9 @@ def apply_draft(patch):
     except (OSError, ValueError):
         raise SystemExit("draft: no readable live/keeper/draft.json; run collect.py first")
     draft.pop("meta", None)
+    if batch_of(DRAFT) != batch_of(STAGED):
+        raise SystemExit("draft and cursor are from different passes; run collect.py again")
+    draft.pop("batch", None)
     refs = {e["ref"]: e for e in draft.get("events", []) if e.get("ref")}
     skipped = set()
     for ref, fields in (patch.get("fill") or {}).items():
@@ -194,7 +217,7 @@ def main():
     for c in patch.get("chapters", []):
         cid = c.get("id") or next_id(data.setdefault("chapters", []), "c", 1)
         if c.get("ref"):
-            refs[c.pop("ref")] = cid
+            declare(refs, c.pop("ref"), cid)
         chapter = {**c, "id": cid}
         data["chapters"].append(chapter)
         new_chapters.append(chapter)
@@ -204,7 +227,7 @@ def main():
         eid = next_id(data["events"] + pending, "e", 3)
         own = {eid}
         if e.get("ref"):
-            refs[e["ref"]] = eid
+            declare(refs, e["ref"], eid)
             own.add("@" + e.pop("ref"))
         e = {**e, "id": eid}
         e.setdefault("time", now)
@@ -215,7 +238,10 @@ def main():
             if e["causedBy"] is None:
                 e.pop("causedBy")
         pending.append(e)
-    pending = resolve(pending, refs)
+    pending = [fields(e, ("causedBy", "supersedes", "chapter"), refs) for e in pending]
+    for chapter in new_chapters:
+        if "keyBeats" in chapter:
+            chapter["keyBeats"] = ref(chapter["keyBeats"], refs)
     for chapter in new_chapters:
         times = [e["time"] for e in pending if e.get("chapter") == chapter["id"]]
         chapter.setdefault("start", min(times, key=validate.when) if times else now)
@@ -223,8 +249,8 @@ def main():
         if data.get("chapters") and not e.get("chapter"):
             e["chapter"] = chapter_at(data["chapters"], e["time"])
     data["events"].extend(pending)
-    for eid, changes in resolve(patch.get("edit", {}), refs).items():
-        eid = resolve(eid, refs)
+    for eid, changes in patch.get("edit", {}).items():
+        eid, changes = ref(eid, refs), fields(changes, ("causedBy", "supersedes", "chapter"), refs)
         event = next((e for e in data["events"] if e["id"] == eid), None)
         if not event:
             raise SystemExit(f"edit: no event {eid}")
@@ -234,7 +260,8 @@ def main():
             changes = {**changes, "end": max(caused, key=validate.when) if caused else now}
         event.update(changes)
         event["updated"] = now
-    for cid, changes in resolve(patch.get("editChapters", {}), refs).items():
+    for cid, changes in patch.get("editChapters", {}).items():
+        cid, changes = ref(cid, refs), fields(changes, ("keyBeats",), refs)
         chapter = next((c for c in data.get("chapters", []) if c["id"] == cid), None)
         if not chapter:
             raise SystemExit(f"editChapters: no chapter {cid}")
@@ -247,7 +274,7 @@ def main():
             if near:
                 print(f'warn: metric "{name}" looks like existing "{near}"; keep names identical')
             names.add(name)
-    for m in resolve(patch.get("metrics", []), refs):
+    for m in (fields(m, ("event",), refs) for m in patch.get("metrics", [])):
         source = next((e for e in data["events"] if e["id"] == m.get("event")), None) if m.get("event") else None
         if m.get("event") and not source:
             raise SystemExit(f"metric: no event {m['event']}")
@@ -261,12 +288,20 @@ def main():
     for lane in data["lanes"]:
         if lane["id"] in patch.get("lanes", {}):
             lane["status"] = patch["lanes"][lane["id"]]
-    merge(data.setdefault("headline", {}), resolve(patch.get("headline", {}), refs))
+    headline = copy.deepcopy(patch.get("headline") or {})
+    if isinstance(headline.get("best"), dict):
+        headline["best"] = fields(headline["best"], ("eventId",), refs)
+    headline = fields(headline, ("latestBreakthroughId",), refs)
+    merge(data.setdefault("headline", {}), headline)
     if (patch.get("headline") or {}).get("status"):
         data["headline"]["status"]["asOf"] = now
     merge(data.setdefault("run", {}), patch.get("run", {}))
     refresh_spend(data, cfg, now)
     data["updated"] = now
+    pending_draft = DRAFT.exists() and not used_draft
+    batch = None if pending_draft else batch_of(STAGED)
+    if batch:
+        data["batch"] = batch
 
     NEXT.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     errors, warnings, _ = validate.check(NEXT, cfg)
@@ -281,11 +316,13 @@ def main():
         sys.exit(1)
     validate.install(NEXT)
     NEXT.unlink()
-    committed = STAGED.exists()
+    committed = STAGED.exists() and not pending_draft
     if committed:
         os.replace(STAGED, STATE)
     if used_draft or committed:
         DRAFT.unlink(missing_ok=True)
+    if pending_draft:
+        print('warn: a lead-log draft is pending; send {"draft": true, …} to apply it')
     blockers = [e["id"] for e in data["events"] if e.get("kind") == "blocked" and e.get("state") != "cleared"]
     running = [e["id"] for e in data["events"] if e.get("kind") == "start" and e.get("state") == "running"]
     print(json.dumps({"installed": True, "events": len(data["events"]), "new": [e["id"] for e in pending], "refs": refs,

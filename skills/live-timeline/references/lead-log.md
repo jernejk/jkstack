@@ -13,10 +13,10 @@ The orchestrator writes it. Lanes can append their own lines too.
 - HH:MM (lane/model) [start] The same, naming the model that does the work.
 ```
 
-- `HH:MM`: when it happened, in the run's timezone. Append; never rewrite a line. A time more than 6 h earlier than the line before means the next day; `[date: YYYY-MM-DD]` sets the day outright.
+- `HH:MM`: when it happened, in the run's timezone. Append; never rewrite a line. A time more than 6 h earlier than the line before means the next day, and one more than 18 h later is a late line from the day before; `[date: YYYY-MM-DD]` sets the day outright.
 - `(lane)`: a lane id from the feed (an unknown id becomes a new lane). `(lane/model)` also records the model: write it on every `[start]`, so the page can show which models ran, where and for how long.
-- `[tag]`: any number of them, anywhere on the line.
-- Indented lines under a beat belong to it. Anything else that isn't a beat is shown to the keeper as `UNPARSED`.
+- `[tag]`: any number of them, anywhere on the line. Text in `` `code` `` is never a tag; an argument may hold one level of `[…]`.
+- Indented lines under a beat belong to it: append a beat and its indented lines in one write. Anything else that isn't a beat is shown to the keeper as `UNPARSED`, and so is a bad time or date. End every line with a newline; an unfinished last line waits for the next pass.
 
 | Tag | Becomes |
 |---|---|
@@ -29,7 +29,7 @@ The orchestrator writes it. Lanes can append their own lines too.
 | `[review]` | `review`, with the reviewer's start set to `done` |
 | `[blocked: what the owner must do]` | `blocked` with that `ask` (`[blocker: …]` too; a bare `[blocker]` stays text) |
 | `[ask: question \| choice A \| choice B]` | `blocked`, with the question as `ask` and the options as `choices`: use it whenever the work waits on the owner's pick |
-| `[cleared]` | the open blocker on that lane is cleared |
+| `[cleared]` | the newest open blocker on that lane is cleared (on the owner's lane: the newest anywhere) |
 | `[done: title or id]` | that start is set to `done` (an id, or words from its title; unmatched ones are listed for the keeper) |
 | `[metric: Name = value unit]` | a point in `metrics` with `"event": "@ref"` for the line's event (or the line's `time`); keep the name identical every time |
 | `[snap: target …]` | run the snapshot command from the header and attach the images; tagging a page vouches that it is safe to show |
@@ -38,7 +38,7 @@ The orchestrator writes it. Lanes can append their own lines too.
 | `[best: text]` | `headline.best`, pointing at this event |
 | `[chapter: Title — one-sentence summary]` | a new chapter that starts here: copy the title and summary as written, `start` = the line's time |
 | `[key]` | importance 3: one of the few beats that belong in the run's summary |
-| `[img: path \| caption]` | an image you have reviewed, relative to the work folder; `collect.py` makes the thumbnail |
+| `[img: path \| caption]` | an image you have reviewed, relative to the work folder; `collect.py` makes the thumbnail (symlinks into `private/` are refused) |
 | `[model: name]` | the model, when the lane slot doesn't carry it |
 | `[thread: id]` | the T3 thread doing the work, so the page can link to it |
 | `[end]` | the run is over |

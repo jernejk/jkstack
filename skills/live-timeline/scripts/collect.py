@@ -6,7 +6,8 @@
   python3 live/collect.py --reset     # forget the cursor (next pass prints each source's tail)
   python3 live/collect.py --mark      # read everything silently and commit, so the first pass starts after the seed
 
-The cursor is staged: a pass writes keeper/state.next.json and patch.py commits it once the patch installs, so running this
+The cursor is staged: a pass writes keeper/draft.json then keeper/state.next.json, both stamped with one batch id, and patch.py
+commits the cursor once the patch installs (a draft stays pending until a patch sends {"draft": true}), so running this
 twice without a patch shows the same lines again. --mark and --reset write keeper/state.json directly.
 Config "leadLog": "LEAD-LOG.md" hands that file to ingest.py: its new lines come back as a compact draft (keeper/draft.json)
 for patch.py {"draft": true, "fill": {...}} instead of raw text, and it is left out of the raw sources.
@@ -21,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import time
@@ -33,6 +35,7 @@ ROOT = HERE.parent
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(HERE))
 import ingest  # noqa: E402
+import validate  # noqa: E402
 
 STATE = HERE / "keeper" / "state.json"
 STAGED = HERE / "keeper" / "state.next.json"
@@ -52,7 +55,20 @@ def load_state():
         return {}
 
 
-def lead_log(cfg):
+def lead_problem(path, key, cfg):
+    user = [x.lower() for x in cfg.get("exclude", [])]
+    real, base = path.resolve(), ROOT.resolve()
+    rkey = str(real.relative_to(base)) if base in real.parents else str(real)
+    if path.is_symlink():
+        return "is a symlink"
+    if validate.private_path(path, ROOT):
+        return "resolves into a private folder"
+    if any(x in "/" + key.lower() for x in user + ["/private/"]) or any(x in "/" + rkey.lower() for x in user):
+        return "matches an exclude"
+    return ""
+
+
+def lead_log(cfg, say=False):
     spec = cfg.get("leadLog")
     if not spec:
         return None
@@ -60,7 +76,13 @@ def lead_log(cfg):
     path = p if p.is_absolute() else ROOT / spec
     if not path.is_file():
         return None
-    return (str(path.relative_to(ROOT)) if ROOT in path.parents else str(path).replace(str(Path.home()), "~")), path
+    key = str(path.relative_to(ROOT)) if ROOT in path.parents else str(path).replace(str(Path.home()), "~")
+    why = lead_problem(path, key, cfg)
+    if why:
+        if say:
+            print(f"SKIPPED lead log: {key} {why}")
+        return None
+    return key, path
 
 
 def new_lines(lines, prev):
@@ -235,8 +257,27 @@ def something_new(cfg, committed):
     return bool(stale_status(cfg, newest))
 
 
+def batch_of(path):
+    try:
+        return json.loads(path.read_text()).get("batch")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def recover():
+    """A patch that installed the feed but died before committing leaves its batch in the feed: finish the commit."""
+    applied = batch_of(HERE / "events.json")
+    if not applied:
+        return
+    if batch_of(STAGED) == applied:
+        os.replace(STAGED, STATE)
+    if batch_of(DRAFT) == applied:
+        DRAFT.unlink(missing_ok=True)
+
+
 def main():
     args = sys.argv[1:]
+    recover()
     if "--mark" in args:
         with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
             collect(commit=True)
@@ -278,7 +319,7 @@ def collect(commit=False):
     print("COLLECTED", state["collected"], "· previous", old.get("collected", "never"))
     todo, held = [], []
     newest = None
-    lead = lead_log(cfg)
+    lead = lead_log(cfg, say=True)
     draft_status = False
     draft_out = None
     for key, path in ([(lead[0], lead[1])] if lead else []) + sources(cfg):
@@ -289,7 +330,8 @@ def collect(commit=False):
         if prev.get("mtime_ns") == st.st_mtime_ns and prev.get("size") == st.st_size:
             state["files"][key] = prev
             continue
-        lines = path.read_text(errors="replace").splitlines()
+        text = path.read_text(errors="replace")
+        lines = ingest.complete_lines(text) if is_lead else text.splitlines()
         hashes = [hashlib.sha1(l.encode()).hexdigest()[:16] for l in lines]
         new = new_lines(lines, prev)
         dropped = []
@@ -352,11 +394,12 @@ def collect(commit=False):
         STAGED.unlink(missing_ok=True)
         DRAFT.unlink(missing_ok=True)
     else:
-        write_state(state, STAGED)
+        batch = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
         if draft_out:
-            write_state(draft_out, DRAFT)
+            write_state({**draft_out, "batch": batch}, DRAFT)
         else:
             DRAFT.unlink(missing_ok=True)
+        write_state({**state, "batch": batch}, STAGED)
     if held:
         print("\nHELD for the next pass (output budget): " + ", ".join(held))
     stale = "" if draft_status else stale_status(cfg, newest)

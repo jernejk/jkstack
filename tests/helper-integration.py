@@ -49,6 +49,16 @@ def live_timeline_lead_log_cycle():
         assert edit.returncode == 0, edit.stdout + edit.stderr
         assert "digest: Loop built." in live("digest.py").stdout and "Loop built." in live("brief.py", "--since", "all").stdout
         assert live("validate.py").returncode == 0
+        with log.open("a") as f:
+            f.write("- 00:40 (build) [result] Pending beat.\n")
+        assert "d1 00:40" in live("collect.py").stdout
+        kept = live("patch.py", input="{}")
+        assert json.loads(kept.stdout.splitlines()[-1])["committed"] is False and "draft is pending" in kept.stdout, kept.stdout
+        assert "d1 00:40" in live("collect.py").stdout, "a plain patch must not drop an unapplied draft"
+        applied = live("patch.py", input='{"draft": true}')
+        assert applied.returncode == 0 and json.loads(applied.stdout.splitlines()[-1])["committed"] is True, applied.stdout + applied.stderr
+        feed = json.loads((work / "live/events.json").read_text())
+        assert [e["summary"] for e in feed["events"]].count("Pending beat.") == 1 and feed["batch"]
         quiet = live("collect.py", "--wait", "1s")
         assert "QUIET for 1 s: nothing new." in quiet.stdout, quiet.stdout
         print("PASS live timeline: lead-log draft, fill, staged cursor, wait, digest in one cycle")

@@ -22,7 +22,8 @@ sys.path.insert(0, str(HERE))
 import validate  # noqa: E402
 
 BEAT = re.compile(r"^-\s+(\d{1,2}):(\d\d)\s+\(([^)/]+?)(?:/([^)]+))?\)\s*(.*)$")
-TAG = re.compile(r"\[([A-Za-z][\w-]*)(?::([^\[\]]*))?\](?!\()")
+TAG = re.compile(r"\[([A-Za-z][\w-]*)(?::((?:[^\[\]]|\[[^\[\]]*\])*))?\](?!\()")
+CODE = re.compile(r"`[^`\n]*`")
 KNOWN = {"start", "result", "fail", "breakthrough", "decision", "nudge", "review", "blocked", "blocker", "ask", "cleared", "done",
          "metric", "status", "progress", "best", "chapter", "end", "key", "img", "snap", "thread", "model", "date"}
 NEEDS_ARG = {"blocker", "img", "snap", "done", "metric", "chapter", "status", "progress", "best", "date", "thread", "model", "ask"}
@@ -38,8 +39,19 @@ def bare(m):
     return m[1].lower() in NEEDS_ARG and not (m[2] or "").strip()
 
 
+def tags_in(text):
+    spans = [m.span() for m in CODE.finditer(text)]
+    return [m for m in TAG.finditer(text) if not any(a <= m.start() < b for a, b in spans)]
+
+
 def tag_iter(text):
-    return (m for m in TAG.finditer(text) if not bare(m))
+    return (m for m in tags_in(text) if not bare(m))
+
+
+def complete_lines(text):
+    """Lines of a log, leaving out a last line that has no newline yet: it may still be mid-write."""
+    lines = text.splitlines()
+    return lines[:-1] if lines and not text.endswith(("\n", "\r")) else lines
 
 
 def num(text):
@@ -89,8 +101,8 @@ def parse_metric(text):
 def thumb(path, hhmm, make):
     """Return an `images` entry for [img: path | caption], or (None, reason)."""
     src = ROOT / path
-    if not validate.safe_image_path(path):
-        return None, f"unsafe image path {path}"
+    if not validate.safe_image_path(path) or validate.private_path(src, ROOT):
+        return None, f"refused image {path}"
     if not src.is_file():
         return None, f"missing image {path}"
     rel = f"live/thumbs/{hhmm}-{src.stem}.jpg"
@@ -141,40 +153,61 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
         b = BEAT.match(line)
         if b:
             seen_beat = True
-            beats.append([b, [b[5]]])
+            beats.append([b, [b[5]], [line]])
         elif not line.strip():
             continue
         elif line[:1].isspace() and beats:
             beats[-1][1].append(re.sub(r"^\s*[-*]\s+", "", line.strip()))
+            beats[-1][2].append(line)
         elif not seen_beat and line.strip() in skip_header:
             continue
         else:
             unparsed.append(line)
     n_ev = n_ch = 0
     day = prev.date() if prev else day0
-    for b, parts in beats:
+    for b, parts, raws in beats:
         h, mi = int(b[1]), int(b[2])
         raw_text = " ".join(parts)
-        if h > 23:
-            unparsed.append(b[0])
-            continue
         tags = [(t[1].lower(), (t[2] or "").strip()) for t in tag_iter(raw_text)]
-        for name, val in tags:
-            if name == "date" and re.fullmatch(r"\d{4}-\d\d-\d\d", val):
-                day, prev = datetime.strptime(val, "%Y-%m-%d").date(), None
+        new_day = None
+        try:
+            if h > 23 or mi > 59:
+                raise ValueError(f"time {h:02d}:{mi:02d}")
+            for name, val in tags:
+                if name == "date":
+                    try:
+                        new_day = datetime.strptime(val, "%Y-%m-%d").date()
+                    except ValueError:
+                        raise ValueError(f"[date: {val}]") from None
+        except ValueError as exc:
+            unparsed.extend(raws)
+            notes.append(f"invalid {exc} on beat \"{b[0][:40]}\"; left unparsed")
+            continue
+        if new_day:
+            day, prev = new_day, None
         at = datetime(day.year, day.month, day.day, h, mi, tzinfo=tz)
+        late = False
         if prev is not None:
             if at < prev - timedelta(hours=6):
                 day += timedelta(days=1)
                 at = at.replace(year=day.year, month=day.month, day=day.day)
-        prev = at
+            elif at > prev + timedelta(hours=18):
+                at -= timedelta(days=1)
+                late = True
+        if not late:
+            prev = at
         stamp = at.isoformat(timespec="seconds")
         hhmm = f"{h:02d}{mi:02d}"
         names = {n for n, _ in tags}
         arg = {}
         for n, v in tags:
             arg.setdefault(n, v)
-        text = TAG.sub(lambda t: t[0] if t[1].lower() not in KNOWN or bare(t) else "", raw_text)
+        kept, end = [], 0
+        for m in tag_iter(raw_text):
+            if m[1].lower() in KNOWN:
+                kept.append(raw_text[end:m.start()])
+                end = m.end()
+        text = "".join(kept) + raw_text[end:]
         for n, v in tags:
             if n not in KNOWN:
                 notes.append(f"unknown tag [{n}] on {h:02d}:{mi:02d} line")
@@ -194,7 +227,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
         kind = next((k for t, k in KIND_TAGS if t in names), "update")
         if kind == "nudge" and owner and lane != owner:
             lane = owner
-        makes_event = not tags or bool({m[1].lower() for m in TAG.finditer(raw_text)} - NO_EVENT)
+        makes_event = not tags or bool({m[1].lower() for m in tags_in(raw_text)} - NO_EVENT)
         ev = None
         ref = None
         if makes_event:
@@ -227,7 +260,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
             if model:
                 ev["model"] = model
             if arg.get("thread") is not None:
-                if validate.ID_RE.fullmatch(arg["thread"]):
+                if validate.valid_id(arg["thread"]):
                     ev["thread"] = arg["thread"]
                 else:
                     notes.append(f"bad [thread:] on {h:02d}:{mi:02d} line")
@@ -269,13 +302,13 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
             patch["chapters"].append({"ref": f"k{n_ch}", "title": t, **({"summary": s} if s else {}), "start": stamp})
 
         if "done" in names:
-            target = match_start(arg["done"], open_starts, lane)
+            target, tie = match_start(arg["done"], [x for x in open_starts if not (ev and x["id"] == "@" + ev["ref"])], lane)
             if target:
                 patch["edit"].setdefault(target["id"], {}).update(state="done", end=stamp)
                 meta["src"][target["id"]] = f"done: {arg['done']}"
                 open_starts.remove(target)
             else:
-                notes.append(f"UNMATCHED done: {arg['done']}")
+                notes.append(f"{'AMBIGUOUS' if tie else 'UNMATCHED'} done: {arg['done']}")
         elif kind == "review":
             target = max((s for s in open_starts if s["lane"] == lane), key=lambda s: s["time"], default=None)
             if target and not (ev and target["id"] == "@" + ev["ref"]):
@@ -283,8 +316,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
                 open_starts.remove(target)
         if "cleared" in names:
             pool = [x for x in open_blocks if not (ev and x["id"] == "@" + ev["ref"])]
-            target = max((x for x in pool if x["lane"] == lane), key=lambda x: x["time"], default=None) or \
-                max(pool, key=lambda x: x["time"], default=None)
+            target = max((x for x in pool if x["lane"] == lane or lane == owner), key=lambda x: x["time"], default=None)
             if target:
                 patch["edit"].setdefault(target["id"], {})["state"] = "cleared"
                 open_blocks.remove(target)
@@ -340,7 +372,7 @@ def match_start(arg, starts, lane):
     arg = arg.strip()
     exact = next((s for s in starts if s["id"] == arg), None)
     if exact:
-        return exact
+        return exact, False
     low = arg.lower()
 
     words = set(re.findall(r"[a-z0-9][a-z0-9.-]*", low)) - {"lane", "the", "and", "of", "a"}
@@ -350,11 +382,14 @@ def match_start(arg, starts, lane):
         overlap = len(words & set(re.findall(r"[a-z0-9][a-z0-9.-]*", text))) / len(words) if words else 0
         return max(overlap, difflib.SequenceMatcher(None, low, s["title"].lower()).ratio(),
                    difflib.SequenceMatcher(None, low, s["summary"].lower()[:len(low) + 8]).ratio())
-    scored = [(score(s), s) for s in starts]
-    good = [(r, s) for r, s in scored if r >= 0.6]
+    good = [(r, s) for r, s in ((score(s), s) for s in starts) if r >= 0.6]
     same = [(r, s) for r, s in good if s["lane"] == lane]
-    pool = same or good
-    return max(pool, key=lambda x: (round(x[0], 2), x[1]["time"]))[1] if pool else None
+    pool = sorted(same or good, key=lambda x: (round(x[0], 2), x[1]["time"]), reverse=True)
+    if not pool:
+        return None, False
+    if not same and len(pool) > 1 and pool[0][0] - pool[1][0] <= 0.05:
+        return None, True
+    return pool[0][1], False
 
 
 def shown(m):
@@ -441,11 +476,11 @@ def main():
     a = ap.parse_args()
     import collect
     cfg = collect.load_config()
-    lead = collect.lead_log(cfg)
+    lead = collect.lead_log(cfg, say=True)
     if not lead:
-        sys.exit('no "leadLog" in keeper/config.json')
+        sys.exit('no usable "leadLog" in keeper/config.json')
     key, path = lead
-    lines = path.read_text(errors="replace").splitlines()
+    lines = complete_lines(path.read_text(errors="replace"))
     try:
         feed = json.loads((HERE / "events.json").read_text())
     except (OSError, ValueError):

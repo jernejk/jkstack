@@ -91,7 +91,7 @@ for a hosted T3 instead.
 `{ "id": "c4", "title": "Convergence", "start": "…", "summary": "One sentence: what this part is about." }`
 
 The story layer is optional: `digest` (2–3 plain sentences: what happened and how it turned out), `outcome` (one line),
-`keyBeats` (up to 4 event ids from this chapter, shown in Story view) and `end`. Without them the page picks the key
+`keyBeats` (up to 4 distinct event ids from this chapter, shown in Story view) and `end`. Without them the page picks the key
 beats itself: open blockers, breakthroughs, dead ends, owner nudges, reviews, then successes. `run.digest` holds up
 to three lines for the whole run. `digest.py` prints what a model needs to write them; see "Simplify the story".
 

@@ -45,7 +45,8 @@ class Smoke(unittest.TestCase):
     def collect(self, work, *args, commit=True):
         out = run(sys.executable, work / "live/collect.py", *args, env=self.env).stdout
         if commit:
-            run(sys.executable, work / "live/patch.py", input="{}", env=self.env)
+            pending = (work / "live/keeper/draft.json").exists()
+            run(sys.executable, work / "live/patch.py", input='{"draft": true}' if pending else "{}", env=self.env)
         return out
 
     def patch(self, work, patch, ok=True):
@@ -385,7 +386,7 @@ Snapshots: see header. Ignore this prose.
         data = self.feed(work)
         self.assertEqual(data["chapters"][-1]["keyBeats"], [ids["Pick one"]])
         self.assertEqual(data["run"]["t3"]["thread"], "th_1")
-        out = self.patch(work, {"editChapters": {"c1": {"keyBeats": [ids["Pick one"]]}}})
+        out = self.patch(work, {"editChapters": {"c1": {"keyBeats": [ids["Pick one"]]}}}, ok=False)
         self.assertIn("belongs to another chapter", out.stdout)
         bad = [{"editChapters": {"c99": {"digest": "x"}}}, {"editChapters": {cid: {"keyBeats": ["e999"]}}},
                {"editChapters": {cid: {"digest": "x" * 701}}}, {"editChapters": {cid: {"keyBeats": [first] * 7}}},
@@ -466,10 +467,10 @@ Snapshots: see header. Ignore this prose.
         self.assertEqual(sorted(p.name for p in (work / "live").rglob("*")), before)
         self.collect(work)
         with (work / "LEAD-LOG.md").open("a") as f:
-            f.write("- 00:50 (main) [result] Later the same night.\n- 23:40 (main) [result] The next evening.\n- 00:05 (main) [result] The day after.\n")
+            f.write("- 00:50 (main) [result] Later the same night.\n- 17:40 (main) [result] The next evening.\n- 00:05 (main) [result] The day after.\n")
         self.collect(work, commit=False)
         draft = json.loads((work / "live/keeper/draft.json").read_text())
-        self.assertEqual([e["time"][:16] for e in draft["events"]], ["2026-11-21T00:50", "2026-11-21T23:40", "2026-11-22T00:05"])
+        self.assertEqual([e["time"][:16] for e in draft["events"]], ["2026-11-21T00:50", "2026-11-21T17:40", "2026-11-22T00:05"])
 
     def test_ingest_continues_the_day_count_and_matches_existing_starts(self):
         work = self.init("main:Main lane", "+10:00", "--empty")
@@ -495,6 +496,246 @@ Snapshots: see header. Ignore this prose.
         self.assertEqual(draft["edit"][ids["Opus builds the screens"]]["end"], "2026-11-21T01:00:00+10:00")
         self.assertIn("UNPARSED", out)
         self.assertIn("Stray prose that is not a beat.", out)
+
+    LOG_HEAD = "# Lead log: demo (2026-11-20, UTC+10)\n"
+
+    def lead_work(self, text, lanes="main:Main lane,sol:Sol lane,qa:QA lane", name="work"):
+        work = self.init(lanes, "+10:00", "--empty", name=name)
+        self.lead_log(work, self.LOG_HEAD + text)
+        return work
+
+    def draft(self, work):
+        return json.loads((work / "live/keeper/draft.json").read_text())
+
+    def crash(self, work, script, patch=None):
+        (work / "live/crash.py").write_text(script)
+        return run(sys.executable, work / "live/crash.py", env=self.env, input=patch, ok=False)
+
+    def test_unapplied_draft_and_cursor_survive_a_plain_patch(self):
+        work = self.lead_work("- 10:00 (main) [result] Keep me.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        out = self.patch(work, {})
+        self.assertFalse(self.last_json(out)["committed"])
+        self.assertIn("a lead-log draft is pending", out.stdout)
+        keeper = work / "live/keeper"
+        self.assertTrue((keeper / "draft.json").exists() and (keeper / "state.next.json").exists())
+        self.assertFalse((keeper / "state.json").exists())
+        self.assertIn("Keep me", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+        out = self.patch(work, {"draft": True})
+        self.assertTrue(self.last_json(out)["committed"])
+        self.assertEqual([e["summary"] for e in self.feed(work)["events"]], ["Keep me."])
+        self.assertFalse((keeper / "draft.json").exists())
+        self.assertNotIn("SOURCE", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+
+    def test_draft_from_another_pass_than_the_cursor_is_refused(self):
+        work = self.lead_work("- 10:00 (main) [result] First.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        staged = work / "live/keeper/state.next.json"
+        state = json.loads(staged.read_text())
+        staged.write_text(json.dumps({**state, "batch": "older-pass"}))
+        out = self.patch(work, {"draft": True}, ok=False)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("draft and cursor are from different passes; run collect.py again", out.stderr)
+        self.assertEqual(self.feed(work)["events"], [])
+        self.assertTrue((work / "live/keeper/draft.json").exists())
+
+    def test_crash_between_draft_and_cursor_staging_cannot_apply_the_stale_pair(self):
+        work = self.lead_work("- 10:00 (main) [result] Old draft.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        with (work / "LEAD-LOG.md").open("a") as f:
+            f.write("- 10:01 (main) [result] Unstaged beat.\n")
+        self.crash(work, "import os\nimport collect\nwrite = collect.write_state\n"
+                         "def crash(state, target):\n    if target == collect.STAGED: os._exit(77)\n    write(state, target)\n"
+                         "collect.write_state = crash\ncollect.main()\n")
+        self.assertNotEqual(self.patch(work, {"draft": True}, ok=False).returncode, 0)
+        self.assertEqual(self.feed(work)["events"], [])
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.patch(work, {"draft": True})
+        self.assertEqual([e["summary"] for e in self.feed(work)["events"]], ["Old draft.", "Unstaged beat."])
+
+    def test_crash_after_install_before_commit_cannot_duplicate_beats(self):
+        work = self.lead_work("- 10:00 (main) [result] Once only.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.crash(work, "import os\nimport patch\ninstall = patch.validate.install\n"
+                         "def crash(path):\n    install(path)\n    os._exit(77)\npatch.validate.install = crash\npatch.main()\n",
+                   json.dumps({"draft": True}))
+        keeper = work / "live/keeper"
+        self.assertTrue((keeper / "draft.json").exists() and (keeper / "state.next.json").exists())
+        self.assertEqual(len(self.feed(work)["events"]), 1)
+        self.assertEqual(self.feed(work)["batch"], json.loads((keeper / "state.next.json").read_text())["batch"])
+        self.assertNotIn("SOURCE", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+        self.assertTrue((keeper / "state.json").exists())
+        self.assertFalse((keeper / "draft.json").exists())
+        self.assertNotEqual(self.patch(work, {"draft": True}, ok=False).returncode, 0)
+        self.patch(work, {})
+        self.assertEqual([e["summary"] for e in self.feed(work)["events"]], ["Once only."])
+
+    def test_bad_times_go_unparsed_and_late_appends_keep_the_day(self):
+        work = self.lead_work("- 09:00 (main) [result] Valid.\n- 10:60 (main) [result] Impossible time.\n    [metric: Lost = 1]\n"
+                              "- 10:00 (main) [date: 2026-02-30] Impossible date.\n- 11:00 (main) [result] Also valid.\n"
+                              "- 23:55 (main) [start] Night.\n- 00:10 (main) [result] Morning.\n"
+                              "- 23:58 (main) [review] Late append.\n- 00:12 (main) [result] Still morning.\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("UNPARSED", out)
+        self.assertIn("- 10:60 (main) [result] Impossible time.", out)
+        self.assertIn("    [metric: Lost = 1]", out)
+        self.assertIn("- 10:00 (main) [date: 2026-02-30] Impossible date.", out)
+        self.assertIn("invalid time 10:60", out)
+        self.assertIn("invalid [date: 2026-02-30]", out)
+        self.assertEqual([e["time"][:16] for e in self.draft(work)["events"]],
+                         ["2026-11-20T09:00", "2026-11-20T11:00", "2026-11-20T23:55", "2026-11-21T00:10", "2026-11-20T23:58", "2026-11-21T00:12"])
+
+    def test_a_half_written_last_line_waits_and_a_split_beat_stays_unparsed(self):
+        work = self.lead_work("- 10:00 (main) [result] Whole.\n- 10:05 (main) [result] Half")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.assertEqual([e["summary"] for e in self.draft(work)["events"]], ["Whole."])
+        self.patch(work, {"draft": True})
+        self.assertNotIn("SOURCE", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+        with (work / "LEAD-LOG.md").open("a") as f:
+            f.write(" written.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.assertEqual([e["summary"] for e in self.draft(work)["events"]], ["Half written."])
+        self.patch(work, {"draft": True})
+        log = work / "LEAD-LOG.md"
+        log.write_text(log.read_text() + "    [metric: Late = 5]\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("UNPARSED (handle by hand):\n      [metric: Late = 5]", out)
+
+    def test_tags_ignore_code_spans_and_nest_one_bracket_level(self):
+        work = self.lead_work("- 10:00 (sol) [ask: Pick [default on] | Fast | Slow]\n- 10:02 (sol) [result] Keep `[fail]` literal.\n"
+                              "- 10:04 (main) [start] Build parser.\n- 10:05 (main) [start] [done: Build parser] Build parser retries.\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        ev = {e["ref"]: e for e in self.draft(work)["events"]}
+        self.assertEqual((ev["d1"]["kind"], ev["d1"]["ask"], ev["d1"]["choices"]), ("blocked", "Pick [default on]", ["Fast", "Slow"]))
+        self.assertEqual((ev["d2"]["kind"], ev["d2"]["summary"]), ("success", "Keep `[fail]` literal."))
+        self.assertEqual(self.draft(work)["edit"], {"@d3": {"state": "done", "end": "2026-11-20T10:05:00+10:00"}})
+        self.assertNotIn("UNMATCHED", out)
+
+    def test_done_never_closes_its_own_line_and_ties_across_lanes_stay_unresolved(self):
+        work = self.lead_work("- 10:00 (sol) [start] Check parser cases.\n- 10:05 (qa) [start] Check formatter cases.\n"
+                              "- 10:10 (main) [result] [done: check cases] Checks done.\n- 10:20 (main) [start] [done: Fix lone] Fix lone.\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertEqual(self.draft(work).get("edit", {}), {})
+        self.assertIn("AMBIGUOUS done: check cases", out)
+        self.assertIn("UNMATCHED done: Fix lone", out)
+
+    def test_cleared_stays_on_its_lane_unless_the_owner_clears(self):
+        work = self.lead_work("- 10:00 (sol) [blocker: Need access] Sol waits.\n- 10:01 (main) [cleared] Main clears.\n"
+                              "- 10:02 (qa) [blocker: Need data] QA waits.\n- 10:03 (owner) [cleared] Owner clears the newest.\n"
+                              "- 10:04 (qa) [cleared] Own lane, nothing open.\n- 10:05 (sol) [cleared] Own lane.\n", lanes="main:Main lane,sol:Sol lane,qa:QA lane")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertEqual(self.draft(work)["edit"], {"@d2": {"state": "cleared"}, "@d1": {"state": "cleared"}})
+        self.assertEqual(out.count("UNMATCHED cleared"), 2)
+        self.assertIn("UNMATCHED cleared on 10:01 line", out)
+
+    def test_private_lead_logs_and_images_are_refused_through_symlinks(self):
+        work = self.lead_work("- 10:00 (main) [result] Private marker. [img: shots/innocent.png | Marker]\n")
+        (work / "private").mkdir()
+        (work / "private/LEAD-LOG.md").write_text((work / "LEAD-LOG.md").read_text())
+        (work / "LEAD-LOG.md").unlink()
+        (work / "LEAD-LOG.md").symlink_to(work / "private/LEAD-LOG.md")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("SKIPPED lead log: LEAD-LOG.md is a symlink", out)
+        self.assertNotIn("Private marker", out)
+        self.assertFalse((work / "live/keeper/draft.json").exists())
+        (work / "LEAD-LOG.md").unlink()
+        (work / "open").symlink_to(work / "private")
+        config = work / "live/keeper/config.json"
+        config.write_text(json.dumps({**json.loads(config.read_text()), "leadLog": "open/LEAD-LOG.md"}))
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("SKIPPED lead log: open/LEAD-LOG.md resolves into a private folder", out)
+        self.assertNotIn("Private marker", out)
+
+        work = self.lead_work("- 10:00 (main) [result] Shot. [img: shots/innocent.png | Marker] [img: shots/fine.png | Fine]\n", name="work2")
+        self.png(work / "private/secret.png")
+        self.png(work / "shots/fine.png")
+        (work / "shots").mkdir(exist_ok=True)
+        (work / "shots/innocent.png").symlink_to(work / "private/secret.png")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("refused image shots/innocent.png", out)
+        images = self.draft(work)["events"][0]["images"]
+        self.assertEqual([i["full"] for i in images], ["shots/fine.png"])
+        self.assertEqual([p.name for p in (work / "live/thumbs").glob("*")], ["1000-fine.jpg"])
+
+    def test_refs_resolve_only_where_ids_belong_and_duplicates_are_refused(self):
+        work = self.init()
+        out = self.patch(work, {"events": [{"ref": "a", "lane": "main", "kind": "update", "importance": 1, "title": "Owner note",
+                                            "summary": "@owner said ship it."}]})
+        self.assertEqual(self.feed(work)["events"][-1]["summary"], "@owner said ship it.")
+        patch = {"events": [{"ref": "a", "lane": "main", "kind": "update", "importance": 1, "title": "One", "summary": "x"},
+                            {"ref": "a", "lane": "main", "kind": "update", "importance": 1, "title": "Two", "summary": "y"}]}
+        before = self.feed(work)
+        bad = self.patch(work, patch, ok=False)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("ref a is declared twice", bad.stderr)
+        self.assertEqual(self.feed(work), before)
+        ok = self.patch(work, {"events": [{"ref": "b", "lane": "main", "kind": "success", "importance": 2, "title": "B", "summary": "b",
+                                           "causedBy": ["@b"]}, {"ref": "c", "lane": "main", "kind": "success", "importance": 2, "title": "C",
+                                                                 "summary": "c", "causedBy": ["@b"]}],
+                               "headline": {"best": {"text": "@b is literal text", "eventId": "@c"}},
+                               "metrics": [{"name": "M", "value": 1, "event": "@c"}]})
+        data = self.feed(work)
+        ids = {e["title"]: e["id"] for e in data["events"]}
+        self.assertEqual(data["events"][-1]["causedBy"], [ids["B"]])
+        self.assertEqual(data["headline"]["best"], {"text": "@b is literal text", "eventId": ids["C"]})
+        self.assertEqual(data["metrics"][-1]["event"], ids["C"])
+
+    def test_draft_refs_clash_with_extra_event_refs(self):
+        work = self.lead_work("- 10:00 (main) [result] Lead result. [metric: Rows = 12]\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        extra = {"ref": "d1", "lane": "sol", "kind": "success", "importance": 2, "title": "Other result", "summary": "Other result"}
+        bad = self.patch(work, {"draft": True, "events": [extra]}, ok=False)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertIn("ref d1 is declared twice", bad.stderr)
+        self.assertEqual(self.feed(work)["events"], [])
+
+    def feed_with(self, work, mutate):
+        data = self.feed(work)
+        mutate(data)
+        file = work / "live/events.next.json"
+        file.write_text(json.dumps(data))
+        return run(sys.executable, work / "live/validate.py", file, env=self.env, ok=False)
+
+    def test_validation_limits_key_beats_digest_and_t3_ids(self):
+        work = self.init()
+        def story(data):
+            data["chapters"] = [{"id": "c1", "title": "A", "start": "2026-11-20T10:00:00Z"}, {"id": "c2", "title": "B", "start": "2026-11-20T11:00:00Z"}]
+            e = {"lane": "main", "kind": "success", "importance": 2, "time": "2026-11-20T10:30:00Z"}
+            data["events"] = [dict(e, id="e001", title="One", summary="One", chapter="c1"), dict(e, id="e002", title="Two", summary="Two", chapter="c2"),
+                              dict(e, id="e003", title="Implicit", summary="Implicit"), dict(e, id="e004", time="2026-11-20T11:30:00Z", title="Late", summary="Late")]
+        self.assertEqual(self.feed_with(work, story).returncode, 0)
+        def key_beats(beats):
+            return lambda d: (story(d), d["chapters"][0].update(keyBeats=beats))
+        self.assertEqual(self.feed_with(work, key_beats(["e001", "e003"])).returncode, 0)
+        for beats, needle in ((["e001", "e002"], "belongs to another chapter"), (["e001", "e001"], "duplicates"), (["e001", "e003", "e001", "e003", "e001"], "at most 4"),
+                              (["e004"], "belongs to another chapter"), (["e999"], "does not exist")):
+            result = self.feed_with(work, key_beats(beats))
+            self.assertNotEqual(result.returncode, 0, beats)
+            self.assertIn(needle, result.stdout)
+        for run_fields in ({"digest": ["a", "b", "c", "d"]}, {"t3": {"env": "%2e%2e", "thread": "th_1"}}, {"t3": {"env": "e", "thread": "a..b"}},
+                           {"t3": {"env": "e", "thread": "x%2Fy"}}, {"t3": {"env": "e", "thread": "x%5Cy"}}):
+            self.assertNotEqual(self.feed_with(work, lambda d: d["run"].update(run_fields)).returncode, 0, run_fields)
+        self.assertEqual(self.feed_with(work, lambda d: d["run"].update(digest=["a", "b", "c"], t3={"env": "env-1", "thread": "th_1:v.2"})).returncode, 0)
+        self.assertNotEqual(self.feed_with(work, lambda d: (story(d), d["events"][0].update(thread="%2E%2e"))).returncode, 0)
+        (self.home / ".t3/userdata").mkdir(parents=True)
+        (self.home / ".t3/userdata/environment-id").write_text("env-1")
+        for thread, expect in (("th_ok", True), ("a..b", False), ("x%2Fy", False)):
+            target = self.base / f"t3-{thread[:4]}"
+            run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", target, "--owner", "Owner", "--lanes", "main:Main", "--t3-thread", thread, env=self.env)
+            self.assertEqual("t3" in json.loads((target / "live/events.json").read_text())["run"], expect, thread)
+
+    def test_digest_skips_superseded_events_and_places_chapterless_ones_by_time(self):
+        work = self.init()
+        data = self.feed(work)
+        e = {"time": "2026-11-20T10:30:00Z", "kind": "success", "importance": 2, "lane": "main"}
+        data["chapters"] = [{"id": "c1", "title": "Chapter", "start": "2026-11-20T10:00:00Z"}]
+        data["events"] = [dict(e, id="e001", chapter="c1", title="Wrong count", summary="Wrong count"),
+                          dict(e, id="e002", title="Correct count", summary="Correct count", supersedes="e001")]
+        (work / "live/events.json").write_text(json.dumps(data))
+        out = run(sys.executable, work / "live/digest.py", env=self.env).stdout
+        self.assertIn("Correct count", out)
+        self.assertNotIn("Wrong count", out)
+        self.assertIn("c1 Chapter · ", out)
 
     def test_blueprint_links_and_brand_profiles(self):
         for skill in sorted((ROOT / "blueprints").iterdir()):
