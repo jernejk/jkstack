@@ -20,6 +20,11 @@ def t(s):
     return datetime.fromisoformat(s)
 
 
+def options(e):
+    labels = [c.get("label", "") if isinstance(c, dict) else c for c in e.get("choices") or []]
+    return f" Options: {' / '.join(labels)}." if labels else ""
+
+
 def since_of(arg, now, start):
     if arg == "all":
         return start
@@ -64,7 +69,7 @@ def main():
 
     if a.blockers:
         for e in blockers:
-            print(f"! {hm(e)} {e['title']} — {e.get('ask') or e['summary']}  [{e['id']}]")
+            print(f"! {hm(e)} {e['title']} — {e.get('ask') or e['summary']}{options(e)}  [{e['id']}]")
         if not blockers:
             print("Nothing is waiting on you.")
         return
@@ -97,7 +102,7 @@ def main():
     if running:
         out += ["", "In progress:"] + [f"- {e['title']} (since {hm(e)})" for e in running]
     if blockers:
-        out += ["", "Waiting on a decision:"] + [f"- {e['title']} — {e.get('ask') or e['summary']}" for e in blockers]
+        out += ["", "Waiting on a decision:"] + [f"- {e['title']} — {e.get('ask') or e['summary']}{options(e)}" for e in blockers]
     groups = {}
     for m in sorted(d.get("metrics", []), key=lambda m: t(m["time"])):
         groups.setdefault(m["name"], []).append(m)

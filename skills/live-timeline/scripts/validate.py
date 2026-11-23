@@ -97,6 +97,10 @@ def safe_image_path(value):
     return not parsed.scheme and not parsed.netloc and not any(p.lower() in ("..", "private") for p in value.split("/"))
 
 
+def choice_label(choice):
+    return choice.get("label") if isinstance(choice, dict) else choice
+
+
 def check(path, cfg=None):
     cfg = config() if cfg is None else cfg
     errors, warnings = [], []
@@ -177,8 +181,10 @@ def check(path, cfg=None):
             c = e["choices"]
             if kind != "blocked":
                 errors.append(f"{eid}: choices are only for blocked events")
-            if not (isinstance(c, list) and 2 <= len(c) <= 6 and all(isinstance(x, str) and 0 < len(x) <= 80 for x in c)):
-                errors.append(f"{eid}: choices must be 2 to 6 strings of 80 characters or fewer")
+            if not (isinstance(c, list) and 2 <= len(c) <= 6 and all(isinstance(choice_label(x), str) and 0 < len(choice_label(x)) <= 80 for x in c)):
+                errors.append(f"{eid}: choices must be 2 to 6 labels of 80 characters or fewer, as text or {{\"label\", \"image\"}}")
+            elif any(isinstance(x, dict) and (set(x) - {"label", "image"} or ("image" in x and not safe_image_path(x["image"]))) for x in c):
+                errors.append(f"{eid}: a choice is {{\"label\", \"image\"}} and its image path must stay in the reviewed preview directory")
         for link in e.get("links", []) or []:
             if blocked.search(str(link.get("path", ""))):
                 errors.append(f"{eid}: link {link.get('path')!r} points somewhere the page must not show")

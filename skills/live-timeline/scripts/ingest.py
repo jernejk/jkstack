@@ -432,7 +432,7 @@ def render(label, patch, unparsed, notes):
         if e.get("images"):
             tail += f" [img {len(e['images'])}]"
         if e.get("choices"):
-            tail += " choices: " + " | ".join(e["choices"])
+            tail += " choices: " + " | ".join(validate.choice_label(c) for c in e["choices"])
         if e["ref"] in meta.get("snaps", {}):
             tail += f"  [snap: {clip(meta['snaps'][e['ref']], 90)}]  ← run the snapshot command, add its images via fill"
         who = e["lane"] + (f"/{e['model']}" if e.get("model") else "")

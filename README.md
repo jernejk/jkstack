@@ -6,7 +6,7 @@ These skills are modified versions of skills the author uses day to day, adapted
 
 | Skill | What it does |
 | --- | --- |
-| [live-timeline](skills/live-timeline/SKILL.md) | Follow long tasks through chapters, causal arcs, blockers, image snapshots, and a ribbon that folds quiet gaps. |
+| [live-timeline](skills/live-timeline/SKILL.md) | Follow long tasks live, in detail, or as a story: a lane-by-lane run map, a latest-events stream, blockers, causal arcs, chapters and image snapshots. |
 | [deep-yt-analysis](skills/deep-yt-analysis/SKILL.md) | Study supplied video and captions, check frames and claims, and write a sourced HTML verdict. |
 | [design-hill-climb](skills/design-hill-climb/SKILL.md) | Improve a real interface with blind reference comparisons and a fixed review budget. |
 | [dep-investigate](skills/dep-investigate/SKILL.md) | Trace a dependency through its resolved graph and exact-version source. |
