@@ -656,7 +656,7 @@ Snapshots: see header. Ignore this prose.
         self.assertEqual([i.get("full", i["path"]) for i in images], ["shots/fine.png"])
         thumbs = [p.name for p in (work / "live/thumbs").glob("*")]
         self.assertLessEqual(len(thumbs), 1)
-        self.assertTrue(all(re.fullmatch(r"1000-fine-[0-9a-f]{6}\.jpg", n) for n in thumbs), thumbs)
+        self.assertTrue(all(re.fullmatch(r"1000-fine-[0-9a-f]{12}\.jpg", n) for n in thumbs), thumbs)
 
     def set_config(self, work, **cfg_extra):
         config = work / "live/keeper/config.json"
