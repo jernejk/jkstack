@@ -40,7 +40,7 @@ JSON
 python3 work/live/validate.py
 ```
 
-`images` adds reviewed snapshots to an event. Use relative local image paths and optional captions and full-size paths. Sealed events cannot contain images, details, numbers, or links.
+`images` adds reviewed snapshots to an event. Use relative local image paths and optional captions and full-size paths. Sealed events cannot contain images, details, numbers, or links. An ask's `choices` may carry a reviewed snapshot each: `{"label": "Neon", "image": "live/thumbs/neon.jpg"}`.
 
 ## Serve only reviewed output
 
@@ -50,7 +50,7 @@ python3 work/live/validate.py
 python3 -m http.server 8470 --bind 127.0.0.1 --directory ./preview
 ```
 
-This is a local preview. Remote access needs the owner's chosen authenticated hosting and explicit publication authority. Check desktop and phone widths, each theme, and an image popup before sharing a URL. Browser storage caches the feed; clear site data after sensitive runs.
+This is a local preview. Remote access needs the owner's chosen authenticated hosting and explicit publication authority. Check desktop and phone widths, each theme, and an image in a beat's detail before sharing a URL. Browser storage caches the feed; clear site data after sensitive runs.
 
 ## Keep the story current
 
@@ -58,9 +58,15 @@ Use [the keeper brief](references/keeper-brief.md). The cheapest reliable setup 
 
 A cycle reads `collect.py`, selects meaningful changes, and patches the feed. An empty patch is a heartbeat. Use a bounded cadence, normally ten minutes, and stop at the agreed deadline, budget, or completed run. A quiet lane is evidence of silence, not proof of a blocker. A keeper restart resumes from the feed and `keeper/state.json`.
 
-The headline shows status, best result, open asks with their choices, spend, and active lanes with their models. "Lanes and models" lists each lane's state and each model's starts, busy time and work. The ribbon folds quiet gaps and draws closed starts as bars; cards and popups show reviewed snapshots. Busy and finished runs open in **Story** view: one card per chapter with its digest, outcome, hero image and key beats. **Highlights** shows the key beats in full and **Full** shows everything. The **Write update** button and `brief.py --since today` draft text; they never send it. Review text before sharing.
+The page has three modes, switched in the header (a bottom bar on a phone). It opens in **Live** while the run is going and in **Story** once `run.done` is set; after that it remembers the viewer's choice. Every mode shares the header: freshness, status, **Write update** and the lead's T3 link. In Live and Detail the header also has a chapter strip: tap a chapter to jump to it. Story picks chapters from its shape-of-the-run chart instead.
 
-At the end, close running starts and blockers accurately, mark completed lanes `done`, set `run.done: true`, and set `headline.status.tone: done`. Then **simplify the story**: `python3 work/live/digest.py --missing` prints each chapter's beats in about 1.5k tokens; one model pass writes `editChapters` digests, outcomes and key beats plus a three-line `run.digest`, which Story view and **Write update** use. Without digests the page still picks key beats itself. Stop the keeper. Do not mark incomplete work as successful to make the page look finished.
+- **Live**: open asks with their choices sit on top. Below them, a run map with one row per lane and its model, which folds quiet gaps, draws closed starts as bars and jumps the stream to a tapped beat. Under the map, **Now** shows what each lane is running, on which model and for how long, plus progress, best result and spend. Beside it, the **Latest** stream lists beats newest or oldest first, with lenses, filters and a "new since you last looked" line; the pane collapses to give the map the full width.
+- **Detail**: views down the side (Needs you, New since you last looked, Running, Milestones, by outcome, lane, model and chapter, Biggest causes), the beats in a list, and a reader with the path that led to each beat. The overview adds a lane-by-chapter grid.
+- **Story**: the run in brief (`run.digest`, or one computed line), headline facts, the shape of the run by chapter, recent snapshots, then the chapters with their digests, outcomes and key beats, what led to what, outcomes, the owner's calls, lanes and models, and measures.
+
+**Write update** and `brief.py --since today` draft text; they never send it. Review text before sharing.
+
+At the end, close running starts and blockers accurately, mark completed lanes `done`, set `run.done: true`, and set `headline.status.tone: done`. Then **simplify the story**: `python3 work/live/digest.py --missing` prints each chapter's beats in about 1.5k tokens; one model pass writes `editChapters` digests, outcomes and key beats plus a three-line `run.digest`, which **Story** and **Write update** use. Without digests the page still picks key beats itself. Stop the keeper. Do not mark incomplete work as successful to make the page look finished.
 
 ## Boundaries
 

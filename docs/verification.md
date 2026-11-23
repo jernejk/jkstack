@@ -7,14 +7,14 @@ The local assembly was checked on macOS. Original skill files were hashed before
 | Check | Result |
 | --- | --- |
 | `python3 tests/smoke.py` | Nine tests passed. All installs use temporary homes. |
-| `python3 tests/timeline-browser.py` in a Python environment with Playwright and Chromium | Four configurations passed: 1440 and 390 pixels, light and dark. |
+| `python3 tests/timeline-browser.py` in a Python environment with Playwright and Chromium | Passed: a finished run at 1440 and 390 pixels in light and dark, a busy run at 390, Story and lanes at 390 and 1280, Live controls, and every mode at 390, 382 and 867. |
 | `python3 tests/helper-integration.py` | Local NuGet package resolution/provenance and frame extraction from generated media passed. |
 | Skill-creator frontmatter validator on every included skill | Six valid entrypoints: four skills and two blueprints. Descriptions are below 1024 characters. |
 | `bash -n skills/dep-investigate/scripts/dep-snapshot.sh` | Passed. |
 | Python syntax parsing of setup, helpers, and tests | Passed. |
 | Git email check inside the repository | The configured identity was checked and is not copied into this report. |
 
-The timeline checks initialize a temporary run, validate it, append a sample event with image metadata, resolve its reference, read it back, reject unsafe image paths without changing the installed feed, reject a sealed image, and preserve data on upgrade. Collection excludes private sources and avoids reprinting unchanged sources. Browser checks intercept requests locally, without a server or external network. They exercise image loading in cards and popups, quiet-gap compression, update drafts, malformed-feed recovery, horizontal overflow, and JavaScript errors.
+The timeline checks initialize a temporary run, validate it, append a sample event with image metadata, resolve its reference, read it back, reject unsafe image paths without changing the installed feed, reject a sealed image, and preserve data on upgrade. Collection excludes private sources and avoids reprinting unchanged sources. Browser checks intercept requests locally, without a server or external network. They exercise the Live, Detail and Story modes and the default mode for running and finished runs, image loading with full links, quiet-gap folding on the run map, update drafts, malformed-feed recovery, the stale pill, collapsing the stream, "new since you last looked", phone tap targets, horizontal overflow, and JavaScript errors.
 
 Setup checks cover a no-write dry run, both harnesses, a single harness, idempotence, existing folders/files/broken links, and parent symlinks. A conflict in either harness prevents all new links.
 

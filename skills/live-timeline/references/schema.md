@@ -1,7 +1,7 @@
 # Live timeline feed — guide for the keeper
 
 The page (`live-timeline.html`) reads **`live/events.json`** on load and every 60 s. You never touch the page: it
-handles layout, chapters, arcs, sizes, animation, popups and the "Write update" text. You only change the feed, and
+handles layout, the Live, Detail and Story modes, chapters, arcs and the "Write update" text. You only change the feed, and
 only through **`live/patch.py`**.
 
 ## Your rules
@@ -60,7 +60,7 @@ running starts and open blockers are the ones you expect.
 }
 ```
 
-### `headline` — the strip at the top
+### `headline` — status, progress, best result and spend
 
 | Field | Meaning |
 |---|---|
@@ -70,7 +70,7 @@ running starts and open blockers are the ones you expect.
 | `spend` | Filled by `patch.py` from `keeper/config.json` → `spend.sources`. Don't hand-edit unless there is no source. |
 | `latestBreakthroughId` | Optional; otherwise the newest `breakthrough`. |
 
-Open blockers take over the third cell ("Needs you"), so the owner sees them first.
+The status sits in the header of every mode. Open blockers sit above everything else as "Needs you", with their choices and an "Answer in T3" link, so the owner sees them first.
 
 ### `lanes`
 
@@ -91,7 +91,7 @@ for a hosted T3 instead.
 `{ "id": "c4", "title": "Convergence", "start": "…", "summary": "One sentence: what this part is about." }`
 
 The story layer is optional: `digest` (2–3 plain sentences: what happened and how it turned out), `outcome` (one line),
-`keyBeats` (up to 4 distinct event ids from this chapter, shown in Story view) and `end`. Without them the page picks the key
+`keyBeats` (up to 4 distinct event ids from this chapter, shown in Story) and `end`. Without them the page picks the key
 beats itself: open blockers, breakthroughs, dead ends, owner nudges, reviews, then successes. `run.digest` holds up
 to three lines for the whole run. `digest.py` prints what a model needs to write them; see "Simplify the story".
 
@@ -111,15 +111,15 @@ hour or two on a night run, one or two a day on a multi-day run. Titles are two 
 | `summary` | yes | One line: what happened, with the number that matters. |
 | `why` | on 3s | One line: why it mattered, what it changed. |
 | `ask` | on `blocked` | One line: exactly what the owner must do to unblock it. |
-| `detail` | optional | Markdown for the popup: paragraphs, `- ` bullets, `**bold**`, `` `code` ``, `[text](path)`. |
-| `numbers` | optional | `[{ "label": "Recall", "value": "33/43" }, { "label": "Cost", "value": 0.41, "unit": "US$" }]`. The card shows 2 (4 on milestones). |
+| `detail` | optional | Markdown for the beat's detail: paragraphs, `- ` bullets, `**bold**`, `` `code` ``, `[text](path)`. |
+| `numbers` | optional | `[{ "label": "Recall", "value": "33/43" }, { "label": "Cost", "value": 0.41, "unit": "US$" }]`. The stream shows 2; the detail shows all. |
 | `links` | optional | `[{ "label": "Findings", "path": "sol/FINDINGS.md" }]`, relative to the work folder. `private/`, absolute and `..` paths are refused. HTTPS evidence links are allowed; inspect their destination before sharing. |
 | `causedBy` | optional | Ids this grew out of: drawn as arcs, listed as "Came from" / "Led to". |
 | `state` | `start`, `blocked` | `start`: `running` draws a live bar to now; `done`/`failed` stops it. `blocked`: `open` (default) or `cleared`. |
-| `end` | on `start` | When it finished; `patch.py` stamps it when the start closes. The ribbon draws the start as a bar. |
-| `model` | optional | The model doing the work (`opus`, `gpt-6-luna`). Shown on the card and totalled per model. Put it on starts. |
+| `end` | on `start` | When it finished; `patch.py` stamps it when the start closes. The run map draws the start as a bar. |
+| `model` | optional | The model doing the work (`opus`, `gpt-6-luna`). Shown on the beat and totalled per model. Put it on starts. |
 | `thread` | optional | The T3 thread doing the work; links the lane to it. |
-| `choices` | on `blocked` | 2–6 short options when the owner must pick one: shown under "Needs you". |
+| `choices` | on `blocked` | 2–6 short options when the owner must pick one: shown under "Needs you". Each is a label of 80 characters or fewer, or `{ "label": "Neon", "image": "live/thumbs/neon.jpg" }` to show a reviewed snapshot beside the option. The image path follows the rules under "Image snapshots"; text and the update use the label. |
 | `supersedes` | optional | The id this corrects. The old one leaves the story and shows as "Replaces". |
 
 **Importance.** `3` only for breakthroughs, blockers and beats the lead tags `[key]`: a few a day. `2` for anything that
@@ -146,7 +146,7 @@ that only says "this came next" is noise.
 
 ## How to…
 
-**Append an event.** Put it in `events`. The page sorts by time; new events animate in and nothing on screen moves.
+**Append an event.** Put it in `events`. The page sorts by time; new events flash in the stream and nothing you are reading moves.
 
 **Update a running event.** `edit` it, same id: change `summary`, `numbers` or `detail`. Don't append "still
 running"; at most an importance-1 `update` when a real milestone passes ("6 of 12 done").
@@ -173,16 +173,16 @@ acted) or `update` with `causedBy: ["e071"]`. Never leave a blocker open once th
 **Correct a mistake.** Append a new event with `"supersedes": "<old id>"`. Don't delete history. Typos can be fixed
 with `edit`.
 
-**Finish.** Final beat, every lane `done` (the page already counts a lane as active only while it has an open start or blocker, or wrote in the last `staleAfterMin`), `"run": { "done": true }`, `status.tone` `done`.
+**Finish.** Final beat, every lane `done` (the page already counts a lane as active only while it has an open start or blocker, or wrote in the last `staleAfterMin`), `"run": { "done": true }`, `status.tone` `done`. The page then opens in Story for anyone who has not picked a mode.
 
 **Simplify the story** (after the run, or when a chapter closes). `python3 live/digest.py --missing` prints each
 chapter's beats compactly; write `editChapters` with a `digest`, `outcome` and up to four `keyBeats` per chapter, plus
-`run.digest`. Copy facts and numbers from the beats; don't add new ones. Finished runs and runs over 120 events open
-in Story view, which shows one card per chapter; Highlights shows the key beats in full and Full shows everything.
+`run.digest`. Copy facts and numbers from the beats; don't add new ones. Finished runs open in Story, which lists each chapter
+with its digest, outcome and key beats; Live and Detail show every beat.
 
 ## Metrics
 
-The "Measures" panel appears once `metrics` has an entry. Add a point whenever a source reports a concrete value
+The "Measures" tab appears once `metrics` has an entry. Add a point whenever a source reports a concrete value
 worth tracking: recall, precision, pass rate, items done, cost per item, error count.
 
 ```json
@@ -193,7 +193,7 @@ worth tracking: recall, precision, pass rate, items done, cost per item, error c
 When the value comes with an event, add `"event": "@ref"` so the point takes that event's time and lane.
 
 `name` groups points into one card: keep it **exactly** the same each time (`patch.py` warns about near-duplicates).
-A name with a single point shows as a chip, not a card. `of` for fractions, `unit` for `%` or
+A name with a single point shows as a single reading, not a card. `of` for fractions, `unit` for `%` or
 `US$`, `better: "lower"` when down is good. Append; never edit old points.
 
 ## Style guide
@@ -255,4 +255,4 @@ an unknown `kind` draws as `update`; an unknown `lane` gets its own track; a dup
 {"images":[{"path":"live/thumbs/check.jpg","caption":"Reviewed batch summary","full":"assets/check.png"}]}
 ```
 
-`path` points to a small local snapshot, typically about 640 pixels wide. `caption` is optional plain text. `full` optionally opens the original. Paths are relative to the page and must stay inside its reviewed preview directory: no URL schemes, absolute paths, traversal, encoded path tricks, or `private/`. Up to four thumbnails appear on a card; all appear in its popup. The validator checks path structure, not file existence or image contents. Inspect every image, caption, and original before including it, with one exception: a `snap.py` shot of a page the lead tagged with `[snap: …]`. The tag vouches for the page, and `snap.py` refuses error responses, blank pages and pages showing a denied term, so the keeper attaches those without opening them. Sealed events carry no images.
+`path` points to a small local snapshot, typically about 640 pixels wide. `caption` is optional plain text. `full` optionally opens the original. Paths are relative to the page and must stay inside its reviewed preview directory: no URL schemes, absolute paths, traversal, encoded path tricks, or `private/`. Up to three thumbnails appear on a beat in the stream; all appear in its detail, where each opens `full`. The validator checks path structure, not file existence or image contents. Inspect every image, caption, and original before including it, with one exception: a `snap.py` shot of a page the lead tagged with `[snap: …]`. The tag vouches for the page, and `snap.py` refuses error responses, blank pages and pages showing a denied term, so the keeper attaches those without opening them. Sealed events carry no images.

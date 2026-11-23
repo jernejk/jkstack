@@ -402,6 +402,29 @@ Snapshots: see header. Ignore this prose.
         out = self.patch(work, {"metrics": [{"name": "Pass rates", "value": 2}]}).stdout
         self.assertIn('metric "Pass rates" looks like existing "Pass rate"', out)
 
+    def test_choices_may_carry_reviewed_images(self):
+        work = self.init()
+        ask = lambda choices: {"events": [{"lane": "main", "kind": "blocked", "importance": 3, "title": "Pick the art", "summary": "Two sets pass.",
+                                           "ask": "Which set ships?", "choices": choices}]}
+        self.patch(work, ask([{"label": "Neon", "image": "live/thumbs/neon.jpg"}, "Paper"]))
+        self.assertEqual(self.feed(work)["events"][-1]["choices"][0], {"label": "Neon", "image": "live/thumbs/neon.jpg"})
+        for image in ("../neon.jpg", "private/neon.jpg", "https://example.com/neon.jpg", "/abs/neon.jpg", "live/thumbs/a b.jpg"):
+            out = self.patch(work, ask([{"label": "Neon", "image": image}, "Paper"]), ok=False)
+            self.assertIn("image path must stay", out.stdout, image)
+        for bad in ([{"label": "Neon", "url": "x"}, "Paper"], [{"image": "live/thumbs/neon.jpg"}, "Paper"], [{"label": "x" * 81}, "Paper"]):
+            self.assertNotEqual(self.patch(work, ask(bad), ok=False).returncode, 0, bad)
+        brief = run(sys.executable, work / "live/brief.py", "--blockers", env=self.env).stdout
+        self.assertIn("Options: Neon / Paper.", brief)
+
+    def test_a_draft_ask_takes_choice_images_through_edit(self):
+        work = self.synthetic()
+        self.collect(work, commit=False)
+        choices = [{"label": "Neon", "image": "live/thumbs/neon.jpg"}, "Paper", "Pixel"]
+        self.patch(work, {"draft": True, "fill": {"d4": {"title": "Owner picks the art style"}}, "edit": {"@d4": {"choices": choices}}})
+        asks = [e for e in self.feed(work)["events"] if e.get("ask") == "Which art style?"]
+        self.assertEqual(len(asks), 1)
+        self.assertEqual(asks[0]["choices"], choices)
+
     def test_digest_recent_and_brief_use_the_story_layer(self):
         work = self.synthetic()
         self.collect(work, commit=False)
