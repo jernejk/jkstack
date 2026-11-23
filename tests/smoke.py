@@ -721,6 +721,16 @@ Snapshots: see header. Ignore this prose.
         self.assertEqual(len(set(thumbs)), len(thumbs), thumbs)
         self.assertTrue(all((work / i["path"]).is_file() for i in images), images)
 
+    def test_a_replaced_image_at_the_same_path_and_minute_gets_a_new_thumbnail(self):
+        work = self.lead_work("- 10:00 (main) [result] One. [img: build/screen.png | A]\n")
+        self.png(work / "build/screen.png")
+        thumb = lambda: subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, 'live'); import ingest; "
+                                        "print(ingest.thumb('build/screen.png', '1000', '2026-11-20', False)[0]['path'])"],
+                                       cwd=work, capture_output=True, text=True, check=True).stdout.strip()
+        first = thumb()
+        (work / "build/screen.png").write_bytes((work / "build/screen.png").read_bytes() + b"\0")
+        self.assertNotEqual(thumb(), first)
+
     def test_closure_tags_skip_superseded_events(self):
         work = self.lead_work("- 10:30 (sol) [result] [done: Fix parser] [cleared] Closed.\n")
         data = self.feed(work)

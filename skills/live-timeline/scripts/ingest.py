@@ -106,7 +106,8 @@ def thumb(path, hhmm, day, make):
         return None, f"refused image {path}"
     if not src.is_file():
         return None, f"missing image {path}"
-    fp = hashlib.sha1(f"{path}|{day}".encode()).hexdigest()[:6]
+    st = src.stat()
+    fp = hashlib.sha1(f"{path}|{day}|{st.st_mtime_ns}|{st.st_size}".encode()).hexdigest()[:6]
     rel = f"live/thumbs/{hhmm}-{src.stem}-{fp}.jpg"
     out = ROOT / rel
     if out.exists() or not make:
