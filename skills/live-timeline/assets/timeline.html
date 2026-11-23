@@ -137,6 +137,8 @@ button.hc:not([disabled]):hover{border-color:var(--line2);background:var(--raise
 .trail button:hover{background:var(--raise)}
 .trail .tt{flex:1;min-width:0}
 .trail .tm{color:var(--tx3);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.trail li.gone{display:flex;align-items:center;gap:9px;min-height:42px;padding:6px 11px;color:var(--tx2)}
+.trail li.gone .tt{flex:1;min-width:0}
 .trail li.me{background:var(--sel);padding:8px 11px;display:flex;gap:9px;align-items:center;font-weight:650}
 .ask{background:var(--sig-bg);border:1px solid color-mix(in srgb,var(--sig) 55%,transparent);border-radius:12px;padding:12px 14px;color:var(--sig-tx)}
 .ask-h{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--sig)}
@@ -243,12 +245,14 @@ button.hc:not([disabled]):hover{border-color:var(--line2);background:var(--raise
 .opt.img{min-height:52px}
 .opt.img .th{width:42px;height:42px}
 }
-.m-live .askbar{position:relative;flex:none;border-bottom:1px solid color-mix(in srgb,var(--sig) 55%,transparent);background:var(--sig-bg)}
+.m-live .askbar{position:relative;flex:none;max-height:calc(var(--app-h) * .4);overflow-y:auto;overscroll-behavior:contain;border-bottom:1px solid color-mix(in srgb,var(--sig) 55%,transparent);background:var(--sig-bg)}
 .m-live .askbar[hidden]{display:none}
-.m-live .askbar .ask{border:0;border-radius:0;padding:9px 60px 9px 16px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"h q c" "h s c" "n n n";gap:0 18px;align-items:center}
+.m-live .askbar .ask+.ask{border-top:1px solid color-mix(in srgb,var(--sig) 30%,transparent)}
+.m-live .askbar .ask{border:0;border-radius:0;padding:9px 60px 9px 16px;display:grid;grid-template-columns:auto minmax(240px,1fr) minmax(0,max-content);grid-template-areas:"h q c" "h s c" "n n n";gap:0 18px;align-items:center}
 .m-live .askbar .ask-h{grid-area:h;flex-direction:column;align-items:flex-start;gap:1px}
 .m-live .askbar .ask-h .g{display:none}
-.m-live .askbar .ask-q{grid-area:q;margin:0} .m-live .askbar .ask-s{grid-area:s} .m-live .askbar .ask-c{grid-area:c;margin:0;flex-wrap:nowrap}
+.m-live .askbar .ask-q{grid-area:q;margin:0} .m-live .askbar .ask-s{grid-area:s} .m-live .askbar .ask-c{grid-area:c;margin:0;flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.m-live .askbar .opt span{white-space:normal}
 .m-live .askbar .ask-n{grid-area:n;text-align:right;margin-top:4px;display:none}
 .m-live .askbar .ask:has(.opt[aria-pressed="true"]) .ask-n{display:block}
 .m-live .askt{position:absolute;right:10px;top:8px}
@@ -1002,14 +1006,14 @@ function prepare(d) {
   R.end = run.done ? (run.end || lastT) : now;
   R.now = R.end;
   const gone = new Set(d.events.filter(e => e.supersedes).map(e => e.supersedes));
-  const laneBy = {};
+  const laneBy = Object.create(null);
   R.lanes = d.lanes.map((l, i) => laneBy[l.id] = { ...l, i, events: [], running: [], asks: [], starts: [] });
-  R.by = {};
+  R.by = Object.create(null);
   d.events.forEach(e => { R.by[e.id] = { ...e }; });
   R.events = d.events.filter(e => !gone.has(e.id)).map(e => R.by[e.id]);
   const shown = new Set(R.events.map(e => e.id));
   const chs = d.chapters.length ? d.chapters : [{ id: '_', title: 'The story so far', summary: '', start: NaN, digest: '', outcome: '', keyBeats: [] }];
-  const chBy = {};
+  const chBy = Object.create(null);
   let chapters = chs.map(c => chBy[c.id] = { ...c, events: [] });
   const chapterOf = e => { if (e.chapter && chBy[e.chapter]) return chBy[e.chapter]; let p = chapters[0]; for (const c of chapters) if (c.start && c.start <= e.t) p = c; return p; };
   const spanEnd = e => e.state === 'running' ? Math.max(e.t, R.end) : Number.isFinite(e.end) ? Math.max(e.t, e.end) : e.t;
@@ -1077,9 +1081,9 @@ function prepare(d) {
   });
   R.chapters = chapters;
   R.chapterNow = chapters[chapters.length - 1] || null;
-  const mg = {};
+  const mg = new Map();
   R.metrics = [];
-  d.metrics.forEach(m => { if (!mg[m.name]) R.metrics.push(mg[m.name] = { name: m.name, points: [], unit: m.unit, better: m.better }); mg[m.name].points.push(m); });
+  d.metrics.forEach(m => { if (!mg.has(m.name)) { mg.set(m.name, { name: m.name, points: [], unit: m.unit, better: m.better }); R.metrics.push(mg.get(m.name)); } mg.get(m.name).points.push(m); });
   R.metrics.forEach(m => { m.first = m.points[0]; m.lastP = m.points[m.points.length - 1]; m.L = laneBy[m.lastP.lane]; });
   const lastKey = [...R.events].reverse().find(e => e.importance === 3 && e.outcome === 'worked');
   R.digest = run.digest;
@@ -1111,8 +1115,9 @@ function prepare(d) {
 const look = { at: +ls.get('lookedAt') || 0, ids: (() => { try { const a = JSON.parse(ls.get('seenIds') || 'null'); return Array.isArray(a) ? new Set(a) : null; } catch { return null; } })(), since: null };
 const isNew = e => look.since != null ? e.t > look.since || (e.updated > look.since && e.kind !== 'start') : look.ids ? !look.ids.has(e.id) : false;
 const seenLabel = () => 'New since ' + (look.since != null ? fmt.dayTime(look.since) : look.at ? fmt.dayTime(look.at) : 'your last visit');
+const storedIds = () => { try { const a = JSON.parse(ls.get('seenIds') || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
 function markSeen() {
-  look.ids = new Set(data.events.map(e => e.id)); look.at = Date.now(); look.since = null;
+  look.ids = new Set([...storedIds(), ...data.events.map(e => e.id)]); look.at = Date.now(); look.since = null;
   ls.set('seenIds', JSON.stringify([...look.ids])); ls.set('lookedAt', String(look.at));
   if (state.R) state.R.seen = look.at;
 }
@@ -1159,7 +1164,7 @@ function metricDelta(m) {
   const a = m.first.of ? m.first.value / m.first.of : m.first.value, b = m.lastP.of ? m.lastP.value / m.lastP.of : m.lastP.value;
   if (typeof a !== 'number' || typeof b !== 'number' || a === b) return { text: 'no change', good: null };
   const d = b - a, good = m.better === 'lower' ? d < 0 : d > 0;
-  return { text: (d > 0 ? '▲' : '▼') + ' from ' + fmt.num(m.first), good };
+  return { text: d > 0 ? '▲' : '▼', good };
 }
 const tally = (count, kinds = ['breakthrough', 'success', 'fail', 'blocked', 'review', 'nudge']) =>
   kinds.filter(k => count[k]).map(k => `<span class="tl" title="${count[k]} ${esc(KIND[k].group.toLowerCase())}">${glyph(k)}<b class="num">${count[k]}</b></span>`).join('');
@@ -1178,18 +1183,19 @@ function headCells(R) {
   return out.length ? `<div class="hcells">${out.join('')}</div>` : '';
 }
 function askCard(e, R, compact) {
-  const url = R.t3(R.run.t3?.thread || R.threadOf(e)), cs = e.choices, pics = !compact && cs.some(c => c.image);
+  const url = R.t3(R.run.t3?.thread || R.threadOf(e)), cs = e.choices, pics = cs.some(c => c.image);
   return `<div class="ask ${pics ? 'pics' : ''}" data-ask="${esc(e.id)}">
 <div class="ask-h">${glyph('blocked')}<span>Needs you</span><span class="mut num"><span class="wl">waiting </span>${since(e.t)}</span></div>
 <div class="ask-q">${esc(e.ask || e.title)}</div>
 ${compact ? '' : `<div class="ask-s">${esc(e.summary)}</div>`}
-<div class="ask-c">${cs.map(c => `<button class="opt ${c.image && !compact ? 'img' : ''}" data-choice="${esc(c.label)}" aria-pressed="false">${c.image && !compact ? thumb({ path: c.image, caption: c.label }, 48) : ''}<span>${esc(c.label)}</span></button>`).join('')}
+<div class="ask-c">${cs.map(c => `<button class="opt ${c.image ? 'img' : ''}" data-choice="${esc(c.label)}" aria-pressed="false">${c.image ? thumb({ path: c.image, caption: c.label }, 48) : ''}<span>${esc(c.label)}</span></button>`).join('')}
 ${url ? `<a class="btn pri t3" href="${esc(url)}">Answer in T3 ${ICON.ext}</a>` : ''}</div>
 ${cs.length ? `<div class="ask-n" data-askn>Pick one to copy it, then paste it in the lead's thread.</div>` : ''}
 </div>`;
 }
 function trailRow(x) {
-  return `<li><button data-ev="${esc(x.id)}">${glyph(x.kind)}<span class="tt">${esc(x.title)}</span><span class="tm">${fmt.dayTime(x.t)}</span></button></li>`;
+  const inner = `${glyph(x.kind)}<span class="tt">${esc(x.title)}</span><span class="tm">${fmt.dayTime(x.t)}</span>`;
+  return x.L ? `<li><button data-ev="${esc(x.id)}">${inner}</button></li>` : `<li class="gone">${inner}</li>`;
 }
 function eventDetail(e, R, o = {}) {
   const thread = e.open ? R.run.t3?.thread || R.threadOf(e) : R.threadOf(e), url = R.t3(thread);
@@ -1218,7 +1224,7 @@ let updRange = ls.get('updRange') || '2h';
 function sinceOf(R, r) {
   const now = Date.now();
   if (r === '2h') return now - 2 * H;
-  if (r === 'today') { const k = fmt.dayKey(now); let t = now; while (fmt.dayKey(t - 15 * 60e3) === k && t > R.start) t -= 15 * 60e3; return t; }
+  if (r === 'today') { const k = fmt.dayKey(now); let t = now; for (const step of [9e5, 6e4, 1e3, 1]) while (fmt.dayKey(t - step) === k) t -= step; return t; }
   if (r === 'look') return look.at || R.start;
   return R.start;
 }
@@ -1276,7 +1282,7 @@ function toast(msg) {
 }
 const sheet = {
   el: null, stack: [], focus: null,
-  open(html, title) {
+  open(html, title, quiet) {
     if (!this.el || !this.el.isConnected) {
       this.el = document.createElement('div'); this.el.className = 'sheet-wrap'; this.el.hidden = true;
       this.el.innerHTML = `<div class="sheet-scrim" data-act="sheet-close"></div><aside class="sheet" role="dialog" aria-modal="true" aria-label="Details"><div class="sheet-bar"><button class="ib" data-act="sheet-back" aria-label="Back" hidden>${ICON.back}</button><span class="sp"></span><button class="ib x" data-act="sheet-close" aria-label="Close">${ICON.close}</button></div><div class="sheet-body"></div></aside>`;
@@ -1287,17 +1293,25 @@ const sheet = {
     $('.sheet-body', this.el).innerHTML = html; $('.sheet-body', this.el).scrollTop = 0;
     $('[data-act="sheet-back"]', this.el).hidden = this.stack.length < 2;
     this.el.hidden = false;
-    $('.x', this.el).focus({ preventScroll: true });
+    if (!quiet) $('.x', this.el).focus({ preventScroll: true });
   },
-  event(id, push = true) {
+  event(id, push = true, quiet = false) {
     const R = state.R, e = R.by[id]; if (!e || !e.L) return;
     if (push) this.stack.push(id);
     const beats = R.events.filter(x => x.importance >= 2 || x.open), pos = beats.indexOf(e);
     const prev = pos > 0 ? beats[pos - 1] : null, next = pos >= 0 && pos < beats.length - 1 ? beats[pos + 1] : null;
     const nav = `<div class="m-nav"><button ${prev ? `data-ev="${esc(prev.id)}"` : 'disabled'}>${ICON.back}<span>${prev ? esc(prev.title) : ''}</span></button><button ${next ? `data-ev="${esc(next.id)}"` : 'disabled'}><span>${next ? esc(next.title) : ''}</span>${ICON.fwd}</button></div>`;
-    this.open(eventDetail(e, R) + nav, `Chapter ${e.C.n || ''}: ${e.C.title}`);
+    this.open(eventDetail(e, R) + nav, `Chapter ${e.C.n || ''}: ${e.C.title}`, quiet);
     hashTo(id);
     if (cur().onShow) cur().onShow(e);
+  },
+  sync() {
+    if (!this.el || this.el.hidden || !this.stack.length) return;
+    const id = this.stack[this.stack.length - 1], e = state.R.by[id];
+    if (!e || !e.L) return this.close();
+    const body = $('.sheet-body', this.el), y = body.scrollTop;
+    this.event(id, false, true);
+    body.scrollTop = y;
   },
   back() { this.stack.pop(); const id = this.stack[this.stack.length - 1]; if (id) this.event(id, false); else this.close(); },
   close() {
@@ -1351,7 +1365,8 @@ function renderShell() {
   setSince(null);
   drawHeader();
   const B = $('.body', app);
-  if (!state.R.events.length) { B.innerHTML = '<p class="empty-run">No events yet.</p>'; return; }
+  state.mounted = state.R.events.length > 0;
+  if (!state.mounted) { B.innerHTML = '<p class="empty-run">No events yet.</p>'; return; }
   MODES[state.view].render(state.R, B);
 }
 function setView(v) {
@@ -1363,7 +1378,7 @@ function tick() {
   const p = $('.top .hp', app); if (p) p.innerHTML = livePill(state.R);
   $$('[data-since]', app).forEach(n => { n.textContent = fmt.dur(Date.now() - +n.dataset.since); });
 }
-function show() {
+function show(next) {
   if (!data) {
     app.className = 'app m-live';
     app.innerHTML = `<header class="top"></header><div class="body"><p class="empty-run">${feedState === 'bad' ? 'The feed is unreadable. Retrying every minute.' : 'Waiting for <code>live/events.json</code>…'}</p></div>`;
@@ -1372,41 +1387,52 @@ function show() {
   }
   if (data.run.tz) setTz(data.run.tz);
   const first = !state.R;
-  state.R = prepare(data);
+  state.R = next || prepare(data);
   document.title = data.run.title;
   if (first) {
     state.view = MODES[ls.get('mode')] ? ls.get('mode') : data.run.done ? 'story' : 'live';
     renderShell();
     const id = decodeURIComponent(location.hash.slice(1));
     if (id && state.R.by[id] && state.R.by[id].L && cur().onEvent) cur().onEvent(id);
-  } else {
+  } else if (!state.mounted || !state.R.events.length) renderShell();
+  else {
     drawHeader();
-    if (!state.R.events.length) return renderShell();
-    if (cur().refresh) cur().refresh(state.R); else MODES[state.view].render(state.R, $('.body', app));
+    cur().refresh(state.R);
+    sheet.sync();
   }
+}
+function reclock() {
+  const f = document.activeElement;
+  if (!state.mounted || (f && f.closest && f.closest('.body') && /INPUT|SELECT|TEXTAREA/.test(f.tagName))) return tick();
+  state.R = prepare(data);
+  cur().refresh(state.R);
+  sheet.sync();
+  tick();
+}
+function candidate(text) {
+  const d = normalize(JSON.parse(text));
+  return [d, prepare(d)];
 }
 let loading = false;
 async function load() {
   if (loading) return;
   loading = true;
-  let changed = false;
+  let changed = false, next = null;
   try {
     const r = await fetch(FEED, { cache: 'no-cache' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const text = await r.text();
     if (text !== lastText || feedState !== 'ok') {
-      data = normalize(JSON.parse(text)); changed = true; lastText = text;
+      [data, next] = candidate(text); changed = true; lastText = text;
       ls.set('last', text); ls.set('lastAt', String(Date.now()));
     }
     lastGoodAt = Date.now(); feedState = 'ok';
   } catch (err) {
-    const was = feedState;
     feedState = data ? 'stale' : 'bad';
-    if (!data) { const cached = ls.get('last'); if (cached) { try { data = normalize(JSON.parse(cached)); lastGoodAt = +ls.get('lastAt') || null; feedState = 'stale'; changed = true; } catch {} } }
-    if (was !== feedState && !changed) tick();
+    if (!data) { const cached = ls.get('last'); if (cached) { try { [data, next] = candidate(cached); lastGoodAt = +ls.get('lastAt') || null; feedState = 'stale'; changed = true; } catch {} } }
     console.warn('[timeline] feed unreadable, keeping last good copy:', err.message);
   } finally { loading = false; }
-  if (changed || !state.R) show(); else tick();
+  if (changed || !state.R) show(next); else if (feedState === 'ok' && !document.hidden) reclock(); else tick();
 }
 function stripPick(ev, d) {
   const R = state.R, st = $('.strip', app); if (!st || !R.chapters.length) return;
@@ -1419,7 +1445,7 @@ function stripPick(ev, d) {
   if (d) $('.strip', app)?.focus();
 }
 function applyTheme() { if (theme === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', theme); }
-function markLooked() { if (data && feedState === 'ok') { ls.set('lookedAt', String(Date.now())); ls.set('seenIds', JSON.stringify(data.events.map(e => e.id))); } }
+function markLooked() { if (data && feedState === 'ok') { ls.set('lookedAt', String(Date.now())); ls.set('seenIds', JSON.stringify([...new Set([...storedIds(), ...data.events.map(e => e.id)])])); } }
 function boot() {
   applyTheme();
   const fit = () => { let top = false; try { top = window.top === window; } catch {} if (top) document.documentElement.style.setProperty('--app-h', innerHeight + 'px'); };
@@ -1861,7 +1887,7 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
 })();
 (() => {
   const { $, esc, ICON, glyph, fmt } = LT;
-  const phoneMq = matchMedia('(max-width:699px)');
+  const phoneMq = matchMedia('(max-width:699px)'), narrowMq = matchMedia('(max-width:1039px)');
   const S = { view: 'new', sel: null, order: 'new', group: 'chapter', q: '', imp: 0, pane: 'read', drawer: false, cell: null, since: 'visit', openSec: new Set() };
   let R, shown = [];
   const on = () => R && LT.state.view === 'detail' && $('.m-detail .shell');
@@ -1877,12 +1903,15 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
       finding: { label: 'Review findings', test: e => e.kind === 'review' }, asked: { label: 'Asks', test: e => e.kind === 'blocked' },
       own: { label: R.owner + '’s calls', test: e => e.kind === 'nudge' }, dec: { label: 'Decisions', test: e => e.kind === 'decision' } })[a];
     if (k === 'l') { const l = R.lanes.find(x => x.id === a); if (l) return { label: l.name, sub: LT.modelName(l.model || ''), test: e => e.L === l }; }
-    if (k === 'm') { const m = R.models[+a]; if (m) return { label: m.name, sub: m.lanes.map(l => l.short).join(', '), test: e => m.events.includes(e) }; }
-    if (k === 'c') { const c = R.chapters.find(x => x.id === a); return { label: `${c.n}. ${c.title}`, sub: c.summary, test: e => e.C === c }; }
-    if (k === 'x') { const l = R.lanes.find(x => x.id === a), c = R.chapters.find(x => x.id === b); return { label: `${l.name} in ${c.n}. ${c.title}`, test: e => e.L === l && e.C === c }; }
+    if (k === 'm') { const m = model(id.slice(2)); if (m) return { label: m.name, sub: m.lanes.map(l => l.short).join(', '), test: e => m.events.includes(e) }; }
+    if (k === 'c') { const c = R.chapters.find(x => x.id === a); if (c) return { label: `${c.n}. ${c.title}`, sub: c.summary, test: e => e.C === c }; }
+    if (k === 'x') { const l = R.lanes.find(x => x.id === a), c = R.chapters.find(x => x.id === b); if (l && c) return { label: `${l.name} in ${c.n}. ${c.title}`, test: e => e.L === l && e.C === c }; }
     return { label: 'Everything', test: () => true };
   }
   const count = id => R.events.filter(persp(id).test).length;
+  const model = key => R.models.find(m => m.name.toLowerCase() === key);
+  const valid = id => { const [k, a, b] = id.split(':'), lane = x => R.lanes.some(l => l.id === x), ch = x => R.chapters.some(c => c.id === x);
+    return k === 'l' ? lane(a) : k === 'm' ? !!model(id.slice(2)) : k === 'c' ? ch(a) : k === 'x' ? lane(a) && ch(b) : k !== 'o' || !!persp(id); };
   function sidebar() {
     const item = (id, label, o = {}) => { const n = o.n != null ? o.n : count(id); return `<button class="pv ${o.cls || ''}" data-act="view" data-id="${esc(id)}" aria-pressed="${S.view === id && (!!S.sel || S.pane === 'list' || !phoneMq.matches)}">
       ${o.icon || ''}<span class="pl">${esc(label)}${o.sub ? `<span class="ps2">${esc(o.sub)}</span>` : ''}</span><span class="pn2 num">${n}</span></button>`; };
@@ -1898,10 +1927,10 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
       ${item('o:worked', 'Landed', { icon: glyph('success') })}${item('o:failed', 'Dead ends', { icon: glyph('fail') })}${item('o:finding', 'Review findings', { icon: glyph('review') })}
       ${item('o:asked', 'Asks', { icon: glyph('blocked') })}${item('o:own', R.owner + '’s calls', { icon: glyph('nudge') })}${item('o:dec', 'Decisions', { icon: glyph('decision') })}
       ${sec('lanes', 'By lane', R.lanes.map(l => item('l:' + l.id, l.name, { sub: l.human ? 'owner' : LT.modelName(l.model || ''), n: l.events.length, icon: `<i class="dot ${l.active ? 'on' : ''}"></i>` })).join(''), R.lanes.length)}
-      ${sec('models', 'By model', R.models.map((m, i) => item('m:' + i, m.name, { sub: m.lanes.map(l => l.short).join(', '), n: m.events.length })).join(''), R.models.length)}
+      ${sec('models', 'By model', R.models.map(m => item('m:' + m.name.toLowerCase(), m.name, { sub: m.lanes.map(l => l.short).join(', '), n: m.events.length })).join(''), R.models.length)}
       ${sec('chapters', 'By chapter', [...R.chapters].reverse().map(c => item('c:' + c.id, `${c.n}. ${c.title}`, { n: c.events.length })).join(''), R.chapters.length)}
       <div class="sech st">Cause and effect</div>
-      ${item('roots', 'Biggest causes', {})}
+      ${item('roots', 'Biggest causes', { n: S.view === 'roots' ? shown.length : '' })}
       ${item('all', 'Everything', { n: R.events.length })}`;
   }
   function listEvents() {
@@ -2012,7 +2041,8 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
     const sh = $('.shell');
     sh.dataset.pane = S.sel ? 'read' : S.pane === 'list' ? 'list' : 'home';
     sh.classList.toggle('drawer', S.drawer);
-    sidebar(); list(); read(); qbar();
+    list(); sidebar(); read(); qbar();
+    $('.side').inert = !S.drawer && narrowMq.matches;
   }
   function render(r, B) {
     R = r;
@@ -2032,6 +2062,8 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
     const rows = $('.rows'), body = $('.rbody'), ry = rows.scrollTop, by = body.scrollTop;
     R = r;
     if (S.sel && !(R.by[S.sel] && R.by[S.sel].L)) S.sel = null;
+    if (!valid(S.view)) S.view = 'all';
+    if (S.cell && !valid(`x:${S.cell.l}:${S.cell.c}`)) S.cell = null;
     paint();
     rows.scrollTop = ry; body.scrollTop = by;
   }
@@ -2064,6 +2096,7 @@ return { $, $$, esc, ls, app, KIND, KINDS, ICON, glyph, fmt, modelName, match, i
     if (shown[i]) select(shown[i].id);
   });
   phoneMq.addEventListener('change', () => on() && paint());
+  narrowMq.addEventListener('change', () => on() && paint());
   LT.register('detail', { render, refresh, onAct, chapter, onEvent: id => select(id) });
 })();
 (() => {

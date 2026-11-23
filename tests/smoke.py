@@ -416,6 +416,15 @@ Snapshots: see header. Ignore this prose.
         brief = run(sys.executable, work / "live/brief.py", "--blockers", env=self.env).stdout
         self.assertIn("Options: Neon / Paper.", brief)
 
+    def test_a_draft_ask_takes_choice_images_through_edit(self):
+        work = self.synthetic()
+        self.collect(work, commit=False)
+        choices = [{"label": "Neon", "image": "live/thumbs/neon.jpg"}, "Paper", "Pixel"]
+        self.patch(work, {"draft": True, "fill": {"d4": {"title": "Owner picks the art style"}}, "edit": {"@d4": {"choices": choices}}})
+        asks = [e for e in self.feed(work)["events"] if e.get("ask") == "Which art style?"]
+        self.assertEqual(len(asks), 1)
+        self.assertEqual(asks[0]["choices"], choices)
+
     def test_digest_recent_and_brief_use_the_story_layer(self):
         work = self.synthetic()
         self.collect(work, commit=False)

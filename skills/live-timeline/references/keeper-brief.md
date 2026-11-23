@@ -22,7 +22,7 @@ Folder: `<absolute work folder>`. Run every command from there. Feed: `live/even
 - Change the feed only with `python3 live/patch.py <<'EOF' … EOF`. If it reports an error, fix the patch and send it again: the same lines come back until a patch installs.
 - Never read <excluded paths>. **Privacy:** <what must never appear>. Use counts or codes instead.
 - Lanes: <id: who, …>. The owner's lane is `<owner id>`. Never narrate yourself.
-- An ask's `choices` may show an image (`{"label": "…", "image": "live/thumbs/…"}`): attach only snapshots already reviewed into `live/thumbs/`.
+- An ask's `choices` may show an image (`{"label": "…", "image": "live/thumbs/…"}`): attach only snapshots already reviewed into `live/thumbs/`. `fill` cannot set `choices`; for a draft ask, add `"edit": {"@d4": {"choices": [...]}}` to the same patch with every choice, labels included.
 - Be thrifty: one `collect.py` and one `patch.py` per cycle. Don't reopen files you have already summarised. Never open screenshots.
 
 ## Each cycle

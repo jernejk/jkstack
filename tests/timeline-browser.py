@@ -79,6 +79,8 @@ def main():
             finished_with_open_start(browser, html, base())
             live_controls(browser, html, base())
             phones(browser, html, base())
+            refresh_cases(browser, html, base)
+            layout_cases(browser, html, base)
             browser.close()
 
 
@@ -104,8 +106,7 @@ def finished_import(browser, html, feed):
             state = {"malformed": False}
             context, page, errors = open_page(browser, html, feed, width, 1100, scheme, clock=True, state=state)
             assert page.locator('.app.m-story [data-mv="story"][aria-pressed="true"]').count() >= 1, "a finished run opens in Story"
-            page.locator(".film-s img").wait_for()
-            assert page.locator(".film-s img").evaluate("e => e.complete && e.naturalWidth > 0")
+            page.wait_for_function("(() => { const i = document.querySelector('.film-s img'); return i && i.complete && i.naturalWidth > 0; })()")
             assert page.locator("#feed").is_visible() and "Finished" in page.locator("#feedText").inner_text()
             assert "12 of 12 rows match" in page.locator(".hcells").inner_text()
             no_overflow(page, f"story {width}")
@@ -254,6 +255,7 @@ def story_and_lanes(browser, html, feed):
         assert len(names) == 2 and any("Haiku" in n for n in names), "a lane's default model counts its unlabelled starts"
         no_overflow(page, f"story {width}")
         switch(page, "detail")
+        assert page.locator('.side [data-id="roots"] .pn2').text_content() == "", "Biggest causes is counted only when opened"
         page.locator('[data-act="view"][data-id="all"]').filter(visible=True).first.click() if width >= 1040 else (
             page.locator('.qbar [data-act="drawer"]').click(), page.locator('[data-act="view"][data-id="all"]').click())
         assert page.locator(".rows .row").count() == 140, "Detail's Everything view lists every beat"
@@ -277,8 +279,8 @@ def live_controls(browser, html, feed):
     seen = json.dumps([e["id"] for e in feed["events"][:130]])
     looked = f"localStorage.setItem('{STORE}seenIds', JSON.stringify({seen})); localStorage.setItem('{STORE}lookedAt', '{int(datetime.now().timestamp() * 1000) - 3600000}');"
     context, page, errors = open_page(browser, html, feed, init=looked, clock=True)
-    page.locator(".askbar .opt.img img").wait_for()
-    assert page.locator(".askbar .opt.img img").evaluate("e => e.complete && e.naturalWidth > 0 && e.getAttribute('src') === 'live/thumbs/neon.svg'")
+    page.wait_for_function("(() => { const i = document.querySelector('.askbar .opt.img img'); return i && i.complete && i.naturalWidth > 0; })()")
+    assert page.locator(".askbar .opt.img img").get_attribute("src") == "live/thumbs/neon.svg"
     first = page.locator(".list .row").first.get_attribute("data-ev")
     page.locator('[data-act="order"][data-o="old"]').click()
     assert page.locator(".list .row").first.get_attribute("data-ev") != first, "the order toggle changes the first row"
@@ -303,6 +305,14 @@ def live_controls(browser, html, feed):
     assert "Live" in page.locator("#feedText").inner_text()
     page.clock.fast_forward("31:00")
     page.wait_for_function("document.querySelector('#feedText').textContent.includes('No update for')")
+    page.evaluate(f"localStorage.setItem('{STORE}seenIds', JSON.stringify(['from-another-tab']))")
+    page.evaluate("dispatchEvent(new Event('pagehide'))")
+    stored = json.loads(page.evaluate(f"localStorage.getItem('{STORE}seenIds')"))
+    assert "from-another-tab" in stored and "e001" in stored, "leaving the page merges seen ids with what other tabs stored"
+    switch(page, "detail")
+    page.locator('.side [data-act="view"][data-id="ask"]').click()
+    page.locator(".rows .row").first.click()
+    assert page.locator(".rbody .opt.img img").count() == 1, "the reader keeps the choice's snapshot"
     assert not errors, errors
     print("PASS live controls: order toggle, new since last looked and Mark all seen, collapse and expand, strip jump while collapsed, stale pill, choice image")
     context.close()
@@ -324,6 +334,157 @@ def phones(browser, html, feed):
             assert not errors, errors
             context.close()
     print("PASS phones: no sideways scroll at 390, 382 and 867, no control under 40 px, two stream rows in Live")
+
+
+def small_feed(feed, minutes_ago=0):
+    now = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    feed["run"].update(start=stamp(now - timedelta(hours=3)), done=False, staleAfterMin=30)
+    feed["updated"] = stamp(now)
+    feed["lanes"] = [feed["lanes"][0], {"id": "a", "name": "Alpha lane", "short": "Alpha", "status": "running"},
+                     {"id": "b", "name": "Beta lane", "short": "Beta", "status": "running"}]
+    feed["chapters"] = [{"id": "c1", "title": "First", "start": stamp(now - timedelta(hours=3))}, {"id": "c2", "title": "Second", "start": stamp(now - timedelta(hours=1))}]
+    beat = lambda i, mins, lane, chapter, **x: {"id": f"e{i}", "time": stamp(now - timedelta(minutes=mins)), "lane": lane, "kind": "success", "importance": 2,
+                                                "chapter": chapter, "title": f"Beat {i}", "summary": "Synthetic beat.", **x}
+    feed["events"] = [beat(1, 170, "a", "c1", kind="start", state="done", model="alpha", end=stamp(now - timedelta(minutes=160))),
+                      beat(2, 150, "b", "c1", kind="start", state="done", model="beta", end=stamp(now - timedelta(minutes=140))),
+                      beat(3, 140, "b", "c1", kind="start", state="done", model="beta", end=stamp(now - timedelta(minutes=130))),
+                      beat(4, 50, "a", "c2"), beat(5, 25, "a", "c2", kind="blocked", importance=3, ask="Pick one.", choices=["Neon", "Paper"])]
+    feed["metrics"] = []
+    return feed
+
+
+def poll(page):
+    page.clock.run_for(61000)
+    page.wait_for_timeout(100)
+
+
+def refresh_cases(browser, html, base):
+    """Polls that change, clear or break the feed: views stay mounted, selections stay valid and the clock moves on."""
+    feed = small_feed(base())
+    feed["events"] = []
+    context, page, errors = open_page(browser, html, feed, clock=True)
+    assert "No events yet" in page.locator(".body").inner_text()
+    feed.update(small_feed(base()))
+    poll(page)
+    assert page.locator(".m-live .list .row").count() == 5, "the first beat mounts the view"
+    assert not errors, errors
+    context.close()
+
+    feed = small_feed(base())
+    context, page, errors = open_page(browser, html, feed, clock=True)
+    page.locator('.list .row[data-ev="e5"]').click()
+    assert page.locator(".sheet-wrap:not([hidden]) .opt").count() == 2
+    feed["events"][4]["state"] = "cleared"
+    feed["updated"] = stamp(datetime.now(timezone.utc))
+    poll(page)
+    assert page.locator(".sheet-wrap:not([hidden]) .opt").count() == 0 and "The ask" in page.locator(".sheet-wrap").inner_text(), "an open sheet follows the feed"
+    page.locator(".sheet-wrap .x").click()
+    page.locator('[data-act="tab"][data-tab="now"]').click()
+    assert page.locator(".nact").inner_text() == "1"
+    page.clock.run_for(6 * 60000)
+    page.wait_for_timeout(100)
+    assert page.locator(".nact").inner_text() == "0", "lane activity follows the clock when the feed is unchanged"
+    assert not errors, errors
+    context.close()
+
+    feed = small_feed(base())
+    context, page, errors = open_page(browser, html, feed, mode="detail", clock=True)
+    page.locator('.side [data-act="sec"][data-id="models"]').click()
+    page.locator('.side [data-act="view"][data-id^="m:"]', has_text="Alpha").click()
+    assert page.locator(".lh .ltt b").inner_text() == "Alpha"
+    feed["events"] += [{**feed["events"][0], "id": f"e{9 + k}", "time": stamp(datetime.now(timezone.utc) - timedelta(minutes=100 - k))} for k in range(3)]
+    for e in feed["events"][5:]:
+        e.update(model="alpha", lane="a")
+    feed["events"][0]["model"] = "zeta"
+    feed["updated"] = stamp(datetime.now(timezone.utc))
+    poll(page)
+    assert page.locator(".lh .ltt b").inner_text() == "Alpha", "a model view keeps its model when the order changes"
+    page.locator('.side [data-act="sec"][data-id="chapters"]').click()
+    page.locator('.side [data-act="view"][data-id="c:c2"]').click()
+    page.locator('.mc2[data-c="c2"][data-l="a"]').click()
+    feed["events"].append({"id": "e20", "time": stamp(datetime.now(timezone.utc) - timedelta(minutes=160)), "lane": "a", "kind": "update", "importance": 1,
+                           "chapter": "c1", "title": "Correction", "summary": "Replaces two beats.", "supersedes": "e4"})
+    feed["events"].append({**feed["events"][-1], "id": "e21", "supersedes": "e5"})
+    feed["updated"] = stamp(datetime.now(timezone.utc))
+    poll(page)
+    assert page.locator(".lh .ltt b").inner_text() == "Everything", "a view whose chapter is gone falls back"
+    assert not errors, errors
+    context.close()
+
+    feed = small_feed(base())
+    feed["events"].append({"id": "e6", "time": feed["updated"], "lane": "a", "kind": "success", "importance": 2, "title": "Corrected beat",
+                           "summary": "Fixes a beat.", "supersedes": "e4"})
+    feed["metrics"] = [{"name": "constructor", "value": v, "unit": '<i class="xss">u</i>', "time": stamp(datetime.now(timezone.utc) - timedelta(minutes=m))}
+                       for v, m in ((1, 60), (2, 10))]
+    good = json.dumps(feed)
+    context, page, errors = open_page(browser, html, feed, clock=True)
+    page.locator('[data-act="tab"][data-tab="measures"]').click()
+    assert "constructor" in page.locator(".lbody").inner_text(), "a metric named like an Object property still renders"
+    for mode in ("detail", "story"):
+        switch(page, mode)
+        if mode == "story":
+            page.locator('.tabs [data-id="meas"]').click()
+        assert page.locator(".xss").count() == 0, f"metric units are text in {mode}"
+    switch(page, "live")
+    page.locator('.list .row[data-ev="e6"]').click()
+    assert page.locator(".sheet-wrap .trail.old li.gone").count() == 1 and page.locator(".sheet-wrap .trail.old button").count() == 0, "a replaced beat is shown, not linked"
+    page.locator(".sheet-wrap .x").click()
+    page.evaluate("""() => { const has = Map.prototype.has; window.broken = true;
+      Map.prototype.has = function (k) { if (window.broken && k === 'constructor') throw new Error('prepare failed'); return has.call(this, k); }; }""")
+    feed["events"][3]["title"] = "Changed"
+    feed["updated"] = stamp(datetime.now(timezone.utc))
+    poll(page)
+    assert "Last good copy" in page.locator("#feedText").inner_text(), "a feed that cannot be prepared leaves the last good one"
+    assert page.evaluate(f"localStorage.getItem('{STORE}last')") == good, "the cache keeps the last good feed"
+    page.evaluate("window.broken = false")
+    poll(page)
+    assert "Live" in page.locator("#feedText").inner_text() and json.loads(page.evaluate(f"localStorage.getItem('{STORE}last')"))["events"][3]["title"] == "Changed"
+    assert not errors, errors
+    context.close()
+    print("PASS refresh: first beat mounts, open sheet follows the feed, lane activity follows the clock, model and chapter views stay valid, odd metric names, units as text, replaced beats unlinked, a broken feed keeps the last good one")
+
+
+def layout_cases(browser, html, base):
+    """Several asks on a folded phone, long choices on desktop, the Today update range and the closed Views drawer."""
+    feed = small_feed(base())
+    for k in range(3):
+        feed["events"].append({**feed["events"][4], "id": f"e{30 + k}", "title": f"Ask {k}", "summary": "Another open ask with a longer summary line."})
+    context, page, errors = open_page(browser, html, feed, 382, 678)
+    assert page.locator(".m-live .list").evaluate("e => e.clientHeight") >= 120, "open asks leave room for the stream"
+    assert page.locator(".askbar").evaluate("e => e.scrollHeight > e.clientHeight"), "the asks scroll in their own bar"
+    context.close()
+
+    feed = small_feed(base())
+    feed["events"][4]["choices"] = [f"Choice {k}: " + "a long option label that keeps going" for k in range(4)]
+    context, page, errors = open_page(browser, html, feed, 1280, 900)
+    inside = page.evaluate("""() => { const c = document.querySelector('.askbar .ask-c').getBoundingClientRect();
+      return [...document.querySelectorAll('.askbar .ask-c > *')].every(o => { const r = o.getBoundingClientRect(); return r.left >= c.left - 1 && r.right <= Math.min(c.right, innerWidth) + 1; }); }""")
+    assert inside, "long choices wrap inside the ask bar"
+    context.close()
+
+    feed = small_feed(base())
+    feed["run"].update(start="2026-11-23T20:00:00+00:00", tz="UTC")
+    feed["updated"] = "2026-11-24T00:14:00+00:00"
+    feed["events"] = [{"id": "e1", "time": "2026-11-23T23:59:00+00:00", "lane": "a", "kind": "success", "importance": 2, "title": "Before midnight", "summary": "s"},
+                      {"id": "e2", "time": "2026-11-24T00:03:00+00:00", "lane": "a", "kind": "success", "importance": 2, "title": "After midnight", "summary": "s"}]
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    page = context.new_page()
+    serve(page, html, feed)
+    page.clock.install(time=datetime(2026, 11, 24, 0, 14, tzinfo=timezone.utc))
+    page.goto("https://timeline.test/")
+    page.locator("#updBtn").click()
+    page.locator('[data-range="today"]').click()
+    text = page.locator("#updText").input_value()
+    assert "After midnight" in text and "Before midnight" not in text, text
+    context.close()
+
+    context, page, errors = open_page(browser, html, small_feed(base()), 867, 669, mode="detail")
+    assert page.locator(".side").evaluate("e => e.inert"), "a closed drawer is out of the tab order"
+    page.locator('.lh [data-act="drawer"]').click()
+    assert not page.locator(".side").evaluate("e => e.inert")
+    assert not errors, errors
+    context.close()
+    print("PASS layout: several asks scroll and leave the stream, long choices wrap, Today starts at midnight, closed drawer is inert")
 
 
 if __name__ == "__main__":
