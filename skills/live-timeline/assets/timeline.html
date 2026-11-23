@@ -35,6 +35,7 @@
   --kfg:#101215; --good:#4ade80; --bad:#f87171; --warn:#fbbf24; color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);overflow-x:hidden}
 button{font:inherit;color:inherit}
@@ -51,9 +52,10 @@ h1{font-family:var(--serif);font-weight:600;font-size:clamp(20px,3.2vw,28px);lin
 .feed{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
 .feed .pulse{position:relative;width:8px;height:8px;border-radius:50%;background:var(--k-success)}
 .feed .pulse::after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;animation:ping 2.4s ease-out infinite}
-.feed.stale .pulse,.feed.quiet .pulse{background:var(--warn);animation:none}
-.feed.bad .pulse{background:var(--k-fail);animation:none}
-.feed.stale,.feed.bad,.feed.quiet{color:var(--ink)}
+.feed.stale .pulse,.feed.is-quiet .pulse{background:var(--warn)}
+.feed.bad .pulse{background:var(--k-fail)}
+.feed.stale .pulse::after,.feed.bad .pulse::after,.feed.is-quiet .pulse::after{animation:none}
+.feed.stale,.feed.bad,.feed.is-quiet{color:var(--ink)}
 /* Looping effects move only transform and opacity, so the compositor runs them; :root.is-resting pauses them when nobody is looking. */
 @keyframes ping{0%{transform:scale(1);opacity:.55}70%,100%{transform:scale(2.6);opacity:0}}
 @keyframes breathe{50%{transform:scale(.7);opacity:.45}}
@@ -139,7 +141,7 @@ button.c-block:hover{background:color-mix(in srgb,var(--k-blocked) 16%,var(--car
 
 /* Story */
 .story{max-width:760px;margin:26px auto 0}
-.chapter{margin:0 0 34px;animation:fadeup .6s ease both}
+.chapter{margin:0 0 34px;animation:fadeup .6s ease both;scroll-margin-top:56px}
 .ch-head{display:grid;grid-template-columns:44px 40px 1fr;align-items:start;padding-bottom:14px;position:relative}
 .ch-head::before{content:"";position:absolute;left:63px;top:30px;bottom:0;width:2px;background:var(--line-2);opacity:.6}
 .ch-n{grid-column:2;grid-row:span 3;justify-self:center;display:grid;place-items:center;min-width:34px;height:34px;padding:0 6px;border-radius:99px;border:1.5px solid color-mix(in srgb,var(--accent) 55%,var(--line-2));background:var(--bg);font-family:var(--serif);font-size:15px;font-weight:600;color:var(--accent);position:relative;z-index:1}
@@ -228,6 +230,69 @@ button.c-block:hover{background:color-mix(in srgb,var(--k-blocked) 16%,var(--car
 .burst i{position:absolute;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:var(--k-breakthrough);animation:burst 1.1s ease-out forwards}
 @keyframes burst{from{transform:translate(0,0) scale(1);opacity:1}to{transform:translate(var(--dx),var(--dy)) scale(.3);opacity:0}}
 
+/* Views, lanes and models */
+.viewbar{position:sticky;top:0;z-index:15;max-width:760px;margin:22px auto 0;padding:8px 0;display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.jump{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0;flex:1;mask-image:linear-gradient(90deg,#000 92%,transparent)}
+.jump::-webkit-scrollbar{display:none}
+.jump button{flex-shrink:0;border:1px solid var(--line-2);background:var(--card);border-radius:99px;padding:3px 10px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis}
+.jump button b{font-family:var(--serif);color:var(--accent);margin-right:5px;font-weight:600}
+.jump button:hover,.jump button.here{color:var(--ink);border-color:color-mix(in srgb,var(--accent) 50%,var(--line-2))}
+.story{margin-top:10px}
+.run-digest{margin:0 0 30px;padding:14px 16px;border-left:3px solid var(--accent);background:var(--card);border-radius:0 12px 12px 0;box-shadow:var(--shadow)}
+.run-digest h2{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:650}
+.run-digest p{margin:0 0 4px;font-family:var(--serif);font-size:16px;line-height:1.45}
+.ch-story{margin:-4px 0 0 96px;display:grid;grid-template-columns:minmax(0,1fr);gap:10px}
+.ch-digest{margin:0;font-size:14.5px;line-height:1.55;max-width:62ch;text-wrap:pretty}
+.ch-outcome{margin:0;font-size:13px;color:var(--muted)}
+.ch-outcome b{color:var(--ink);font-weight:650}
+.ch-hero{display:block;max-width:420px;padding:0;border:0;background:none;cursor:pointer;text-align:left}
+.ch-hero .frame{aspect-ratio:16/10}
+.keys{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:4px;min-width:0}
+.keys button{display:flex;align-items:center;gap:8px;width:100%;border:1px solid var(--line);background:var(--card);border-radius:9px;padding:5px 10px 5px 6px;cursor:pointer;text-align:left;min-width:0}
+.keys button:hover{border-color:color-mix(in srgb,var(--kc) 55%,var(--line))}
+.keys .sym{width:18px;height:18px;flex-shrink:0}
+.keys .kt{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;flex-shrink:0}
+.keys .kx{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ch-more{margin:8px 0 0 96px;border:1px solid var(--line-2);background:var(--card);border-radius:99px;padding:3px 12px;font-size:12px;color:var(--muted);cursor:pointer}
+.ch-more:hover{color:var(--ink)}
+.b-model{font-weight:600;color:var(--muted);border:1px solid var(--line-2);border-radius:99px;padding:0 6px;font-size:10.5px}
+.b-choices{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.b-choices span{border:1px solid color-mix(in srgb,var(--k-blocked) 45%,var(--line-2));color:var(--ink);border-radius:8px;padding:2px 9px;font-size:12.5px;font-weight:550;background:var(--card)}
+.t3link{display:inline-flex;align-items:center;gap:5px;text-decoration:none;font-weight:600;font-size:12px;white-space:nowrap}
+.t3link::after{content:"↗";font-size:11px}
+a.iconbtn{display:inline-flex;align-items:center;text-decoration:none}
+.cellwrap{position:relative;background:var(--card);min-width:0}
+.cellwrap>.cell{height:100%}
+.cellwrap>.t3link{position:absolute;right:10px;top:9px;font-size:11px}
+.c-block+.t3link{color:var(--k-blocked)}
+.lanes{margin-top:12px;padding:10px 12px 10px}
+.l-list{display:grid;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:6px}
+.l-row{display:grid;grid-template-columns:14px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1.6fr) auto;align-items:center;gap:10px;background:var(--card);padding:6px 10px;font-size:12.5px}
+.l-row .nm{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l-row .md2,.l-row .st{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.l-row .st b{color:var(--ink);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--line-2);display:inline-block}
+.dot.on{background:var(--k-success);animation:breathe 2.4s ease-in-out infinite}
+:root.is-resting .dot.on{animation-play-state:paused}
+.mo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;margin-top:10px}
+.mo{border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.mo-n{display:flex;align-items:center;justify-content:space-between;gap:6px;font-weight:650;font-size:13.5px}
+.mo-s{font-size:11.5px;color:var(--muted);margin-top:1px}
+.mo-bar{height:4px;border-radius:2px;background:var(--accent);opacity:.7;margin-top:5px}
+.mo details{margin-top:4px;font-size:12px}
+.mo summary{cursor:pointer;color:var(--muted)}
+.mo ul{margin:4px 0 0;padding-left:16px}
+.mo li{margin:1px 0}
+.rib-span{stroke-width:2;opacity:.45;stroke-linecap:round}
+.rib-note{font-size:12px;color:var(--muted);margin:2px 0 4px}
+.rib-note button{border:0;background:none;color:var(--accent);font-weight:600;cursor:pointer;padding:0;font-size:12px}
+.m-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.m-chip{border:1px solid var(--line);border-radius:99px;padding:2px 10px;font-size:12px;color:var(--muted);white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.m-chip b{color:var(--ink);font-variant-numeric:tabular-nums;margin-left:4px}
+.m-all{margin-top:8px}
+.frame.tall img{object-fit:contain;object-position:center}
+.shot .more-n{position:absolute;right:6px;top:6px;background:rgba(10,12,16,.72);color:#fff;font-size:11px;font-weight:700;border-radius:99px;padding:1px 7px}
+
 .empty{color:var(--muted);text-align:center;padding:40px 0}
 .foot{max-width:760px;margin:10px auto 0;font-size:11.5px;color:var(--faint);border-top:1px solid var(--line);padding-top:10px}
 
@@ -297,6 +362,12 @@ button.c-block:hover{background:color-mix(in srgb,var(--k-blocked) 16%,var(--car
   .m-imgs.cmp{grid-template-columns:1fr;gap:14px}
   .m-imgs.cmp .shot+.shot::before{content:"↓";left:50%;top:-18px;margin:0 0 0 -11px}
   .seg button{padding:4px 8px}
+  .viewbar{flex-wrap:wrap;gap:8px}
+  .jump{flex-basis:100%}
+  .ch-story,.ch-more{margin-left:42px}
+  .l-row{grid-template-columns:14px auto minmax(0,1fr) auto;row-gap:0}
+  .l-row .st{grid-column:2 / span 3;font-size:11.5px}
+  .chapter{scroll-margin-top:92px}
   .ch-head h2{font-size:21px}
   .ch-sum{font-size:13.5px}
   .imp3 .b-card h3{font-size:17px}
@@ -333,6 +404,7 @@ button.c-block:hover{background:color-mix(in srgb,var(--k-blocked) 16%,var(--car
       </div>
       <div class="tools">
         <span class="feed" id="feed" role="status"><i class="pulse"></i><span id="feedText">Loading…</span></span>
+        <a class="iconbtn t3link" id="t3Btn" hidden title="Open the lead's thread in T3 Code">T3 thread</a>
         <button class="iconbtn" id="updBtn" type="button" title="Write a progress update from the timeline">Write update</button>
         <button class="iconbtn" id="themeBtn" type="button" title="Theme">Auto</button>
       </div>
@@ -349,11 +421,20 @@ button.c-block:hover{background:color-mix(in srgb,var(--k-blocked) 16%,var(--car
     <div class="rib-legend" id="legend"></div>
   </section>
 
-  <section class="card metrics" id="metrics" hidden aria-label="Measures">
-    <div class="sec-head"><h2 class="sect">Measures</h2><button class="iconbtn" id="mToggle" type="button">Hide</button></div>
-    <div class="m-grid" id="mGrid"></div>
+  <section class="card lanes" id="lanes" hidden aria-label="Lanes and models">
+    <div class="sec-head"><h2 class="sect" id="lanesHead">Lanes and models</h2><button class="iconbtn" id="lToggle" type="button">Hide</button></div>
+    <div id="lBody"></div>
   </section>
 
+  <section class="card metrics" id="metrics" hidden aria-label="Measures">
+    <div class="sec-head"><h2 class="sect">Measures</h2><button class="iconbtn" id="mToggle" type="button">Hide</button></div>
+    <div id="mGrid"></div>
+  </section>
+
+  <nav class="viewbar" id="viewbar" aria-label="Story view">
+    <div class="seg" role="group" aria-label="View" id="viewSeg"></div>
+    <div class="jump" id="jump"></div>
+  </nav>
   <main class="story" id="story"><p class="empty">Loading the story…</p></main>
   <footer class="foot" id="foot">Feed: <code>live/events.json</code>, refreshed every 60 s.</footer>
 </div>
@@ -410,7 +491,7 @@ const sym = (kind, cls = 'sym') => `<svg class="${cls}" viewBox="0 0 24 24" styl
 const roman = n => { const m = [[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]; let r = ''; for (const [v, s] of m) while (n >= v) { r += s; n -= v; } return r; };
 const ago = t => { const m = Math.round((Date.now() - t) / 60000); if (m < 1) return 'just now'; if (m < 60) return m + ' min ago'; const h = Math.floor(m / 60); if (h < 48) return h + ' h ' + (m % 60) + ' min ago'; return Math.floor(h / 24) + ' days ago'; };
 
-let data = null, lastGoodAt = null, feedState = 'loading', firstRender = true;
+let data = null, lastGoodAt = null, feedState = 'loading', firstRender = true, lastText = null;
 const seen = new Set();
 let zoom = ls.get('zoom') || 'all';
 let theme = ls.get('theme') || 'auto';
@@ -424,7 +505,8 @@ function normalize(raw) {
   const lanes = [], laneMap = {};
   for (const l of Array.isArray(raw.lanes) ? raw.lanes : []) {
     if (!l || !l.id || laneMap[l.id]) continue;
-    const lane = { id: String(l.id), name: String(l.name || l.id), short: String(l.short || l.name || l.id).slice(0, 8), status: l.status || 'running', human: !!l.human };
+    const lane = { id: String(l.id), name: String(l.name || l.id), short: String(l.short || l.name || l.id).slice(0, 8), status: l.status || 'running', human: !!l.human,
+                   thread: l.thread ? String(l.thread) : '', model: l.model ? String(l.model) : '' };
     lanes.push(lane); laneMap[lane.id] = lane;
   }
   const byId = new Map();
@@ -440,7 +522,8 @@ function normalize(raw) {
       importance: Math.min(3, Math.max(1, parseInt(e.importance, 10) || 1)),
       title: String(e.title || 'Untitled'), summary: e.summary ? String(e.summary) : '', why: e.why ? String(e.why) : '',
       detail: e.detail ? String(e.detail) : '', chapter: e.chapter ? String(e.chapter) : '', state: e.state || '',
-      ask: e.ask ? String(e.ask) : '',
+      ask: e.ask ? String(e.ask) : '', model: e.model ? String(e.model) : '', thread: e.thread ? String(e.thread) : '',
+      choices: Array.isArray(e.choices) ? e.choices.map(String).slice(0, 6) : [], end: e.end ? Date.parse(e.end) : NaN,
       updated: e.updated ? Date.parse(e.updated) : NaN,
       numbers: Array.isArray(e.numbers) ? e.numbers.filter(n => n && n.label != null && n.value != null) : [],
       links: Array.isArray(e.links) ? e.links.filter(l => l && l.path) : [],
@@ -451,7 +534,9 @@ function normalize(raw) {
   }
   const events = [...byId.values()].sort((a, b) => a.t - b.t || a.id.localeCompare(b.id));
   const chapters = (Array.isArray(raw.chapters) ? raw.chapters : []).filter(c => c && c.id && c.title)
-    .map(c => ({ id: String(c.id), title: String(c.title), summary: c.summary ? String(c.summary) : '', start: Date.parse(c.start) }))
+    .map(c => ({ id: String(c.id), title: String(c.title), summary: c.summary ? String(c.summary) : '', start: Date.parse(c.start),
+                 digest: c.digest ? String(c.digest) : '', outcome: c.outcome ? String(c.outcome) : '',
+                 keyBeats: Array.isArray(c.keyBeats) ? c.keyBeats.map(String) : [] }))
     .sort((a, b) => (a.start || 0) - (b.start || 0));
   const metrics = (Array.isArray(raw.metrics) ? raw.metrics : [])
     .filter(m => m && m.name && m.value != null && !Number.isNaN(Date.parse(m.time)))
@@ -462,18 +547,24 @@ function normalize(raw) {
       title: String(run.title || 'Live timeline'), eyebrow: run.eyebrow ? String(run.eyebrow) : '',
       owner: String(run.owner || 'You'), tz: run.tz || '', footer: run.footer ? String(run.footer) : '',
       start: Date.parse(run.start) || (events[0] ? events[0].t : Date.now()), end: Date.parse(run.end) || null,
-      staleAfterMin: +run.staleAfterMin || 30, done: !!run.done
+      staleAfterMin: +run.staleAfterMin || 30, done: !!run.done,
+      digest: (Array.isArray(run.digest) ? run.digest : run.digest ? [run.digest] : []).map(String).slice(0, 4),
+      t3: run.t3 && typeof run.t3 === 'object' ? run.t3 : null
     },
     headline: raw.headline || {}, lanes, laneMap, events, byId, chapters, metrics
   };
 }
 
+let loading = false;
 async function load() {
+  if (loading) return;
+  loading = true;
   try {
-    const r = await fetch(FEED + '?t=' + Date.now(), { cache: 'no-store' });
+    const r = await fetch(FEED, { cache: 'no-cache' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const text = await r.text();
-    data = normalize(JSON.parse(text)); lastGoodAt = Date.now(); feedState = 'ok';
+    if (text === lastText && feedState === 'ok') { lastGoodAt = Date.now(); renderFeed(); return; }
+    data = normalize(JSON.parse(text)); lastGoodAt = Date.now(); feedState = 'ok'; lastText = text;
     ls.set('last', text); ls.set('lastAt', String(lastGoodAt));
   } catch (err) {
     feedState = data ? 'stale' : 'bad';
@@ -482,7 +573,7 @@ async function load() {
       if (cached) { try { data = normalize(JSON.parse(cached)); lastGoodAt = +ls.get('lastAt') || null; feedState = 'stale'; } catch {} }
     }
     console.warn('[timeline] feed unreadable, keeping last good copy:', err.message);
-  }
+  } finally { loading = false; }
   render();
 }
 
@@ -495,10 +586,49 @@ function derive() {
   for (const e of ev) for (const c of e.causedBy) { if (!ledTo.has(c)) ledTo.set(c, []); ledTo.get(c).push(e.id); }
   const isRunning = e => e.kind === 'start' && e.state === 'running';
   const isBlocked = e => e.kind === 'blocked' && e.state !== 'cleared';
-  const isOpen = e => isRunning(e) || isBlocked(e);
+  const live = e => isRunning(e) && !data.run.done;
+  const isOpen = e => live(e) || isBlocked(e);
   const blockers = visible.filter(isBlocked);
-  return { visible, superseded, ledTo, isOpen, isRunning, isBlocked, blockers };
+  const openLanes = new Set(visible.filter(isOpen).map(e => e.lane)), lastAt = {};
+  for (const e of visible) lastAt[e.lane] = e.t;
+  const recent = Date.now() - data.run.staleAfterMin * 60e3;
+  const active = data.run.done ? [] : data.lanes.filter(l => !l.human && !/^(done|paused|idle|failed)$/.test(l.status)
+    && (openLanes.has(l.id) || (lastAt[l.id] || 0) > recent));
+  const runEnd = data.run.done ? (data.run.end || (ev.length ? Math.max(...ev.map(e => e.t)) : Date.now())) : Date.now();
+  const spanEnd = e => isRunning(e) ? Math.max(e.t, runEnd) : !Number.isNaN(e.end) ? Math.max(e.t, e.end) : e.t;
+  const lanes = new Map(data.lanes.map(l => [l.id, { lane: l, starts: 0, iv: [], model: l.model, thread: l.thread, since: null, last: 0, beats: 0 }]));
+  const models = new Map();
+  for (const e of visible) {
+    const li = lanes.get(e.lane);
+    if (!li) continue;
+    li.last = e.t; li.beats++;
+    const model = e.model || (e.kind === 'start' ? data.laneMap[e.lane]?.model : '');
+    if (e.model) li.model = e.model;
+    if (e.thread) li.thread = e.thread;
+    if (e.kind === 'start') { li.starts++; li.iv.push([e.t, spanEnd(e)]); if (live(e) && li.since == null) li.since = e.t; }
+    if (!model) continue;
+    const key = model.toLowerCase();
+    if (!models.has(key)) models.set(key, { name: modelName(model), starts: [], lanes: new Set(), iv: [], live: false, beats: 0 });
+    const m = models.get(key);
+    m.beats++; m.lanes.add(e.lane);
+    if (e.kind === 'start') { m.starts.push(e); m.iv.push([e.t, spanEnd(e)]); if (live(e)) m.live = true; }
+  }
+  const union = iv => { let total = 0, end = -Infinity; for (const [a, b] of iv.sort((x, y) => x[0] - y[0])) { if (b > end) { total += b - Math.max(a, end); end = b; } } return total; };
+  for (const x of [...lanes.values(), ...models.values()]) x.busy = union(x.iv);
+  return { visible, superseded, ledTo, isOpen, isRunning: live, isBlocked, blockers, active, spanEnd, lanes, models };
 }
+const modelName = m => /^[a-z]+$/.test(m) ? m[0].toUpperCase() + m.slice(1) : m;
+const dur = ms => { const m = Math.round(ms / 60e3); return m < 60 ? m + ' min' : m < 600 ? (m / 60).toFixed(1).replace(/\.0$/, '') + ' h' : Math.round(m / 60) + ' h'; };
+const T3_ID = { test: id => /^[A-Za-z0-9_:%.-]{1,200}$/.test(id) && !/\.\.|%2e|%2f|%5c/i.test(id) };
+function t3Href(thread) {
+  const t3 = data.run.t3;
+  thread = thread || t3?.thread;
+  if (!t3 || !T3_ID.test(String(t3.env || '')) || !T3_ID.test(String(thread || ''))) return null;
+  const base = /^(t3code(-[a-z]+)?:\/\/threads\/|https:\/\/[^\s"'<>]+\/threads\/)$/.test(t3.base || '') ? t3.base : 't3code://threads/';
+  return esc(base + t3.env + '/' + thread);
+}
+const t3A = (thread, label = 'Open in T3', cls = '') => { const h = t3Href(thread); return h ? `<a class="t3link ${cls}" href="${h}" title="Open this thread in T3 Code">${esc(label)}</a>` : ''; };
+const threadOf = (e, D) => e.thread || D.lanes.get(e.lane)?.thread || '';
 const kindLabel = k => k === 'nudge' ? `${data.run.owner} nudge` : KINDS[k].label;
 
 /* ---------- Header strip ---------- */
@@ -522,9 +652,11 @@ function renderStrip(D) {
       <div class="lbl">Best result so far</div><div class="val">${esc(best.text)}</div>${best.note ? `<div class="sub">${esc(best.note)}</div>` : ''}</button>`]);
   if (D.blockers.length) {
     const b = D.blockers[D.blockers.length - 1];
-    cells.push([1.35, `<button class="cell c-block wide" type="button" data-open="${esc(b.id)}" style="--kc:var(--k-blocked)">
+    const link = t3A(data.run.t3?.thread || threadOf(b, D), 'Answer in T3');
+    const btn = `<button class="cell c-block${link ? '' : ' wide'}" type="button" data-open="${esc(b.id)}" style="--kc:var(--k-blocked)">
       <div class="lbl">${sym('blocked')} Needs you <span class="count">${D.blockers.length}</span></div>
-      <div class="val">${esc(b.title)}</div><div class="sub">${esc(b.ask || b.summary)} · since ${fmt(b.t)}</div></button>`]);
+      <div class="val">${esc(b.title)}</div><div class="sub">${esc(b.choices.length ? b.choices.join(' · ') : b.ask || b.summary)} · since ${fmt(b.t)}</div></button>`;
+    cells.push([1.35, link ? `<div class="cellwrap wide">${btn}${link}</div>` : btn]);
   } else {
     const breaks = D.visible.filter(e => e.kind === 'breakthrough');
     const lb = (h.latestBreakthroughId && data.byId.get(h.latestBreakthroughId)) || breaks[breaks.length - 1];
@@ -540,9 +672,10 @@ function renderStrip(D) {
       <div class="lbl">Spend</div><div class="big">${esc(cur)}${money(usd)}${budget ? ` <small>of ${money(budget)}</small>` : ''}</div>
       ${budget ? `<div class="bar">${parts.map(([, v]) => `<i style="width:${Math.min(100, v / budget * 100).toFixed(2)}%"></i>`).join('')}</div>` : ''}</div>`]);
   }
-  const running = data.lanes.filter(l => l.status === 'running' && !l.human);
-  cells.push([.8, `<div class="cell c-lanes"><div class="lbl">Lanes running</div><div class="big">${running.length}</div>
-      <div class="runners">${running.map(l => `<span>${esc(l.short)}</span>`).join('')}</div></div>`]);
+  const running = D.active;
+  const who = l => { const li = D.lanes.get(l.id); return esc(l.short) + (li?.model ? ' · ' + esc(modelName(li.model)) : '') + (li?.since ? ` <small>since ${hm(li.since)}</small>` : ''); };
+  cells.push([.8, `<button class="cell c-lanes" type="button" data-goto="lanes" title="A lane is active while it has a running start or open blocker, or wrote in the last ${data.run.staleAfterMin} min"><div class="lbl">Lanes active</div><div class="big">${running.length}<small> of ${data.lanes.filter(l => !l.human).length}</small></div>
+      <div class="runners">${running.map(l => `<span>${who(l)}</span>`).join('')}</div></button>`]);
   const strip = $('#strip');
   strip.style.gridTemplateColumns = cells.map(c => c[0] + 'fr').join(' ');
   const html = cells.map(c => c[1]).join('');
@@ -550,7 +683,7 @@ function renderStrip(D) {
   strip.dataset.sig = html;
   strip.innerHTML = html;
   strip.querySelectorAll('.lbl .sym').forEach(s => { s.style.width = '13px'; s.style.height = '13px'; });
-  const all = [...strip.querySelectorAll('.cell')];
+  const all = [...strip.children];
   if (all.reduce((n, c) => n + (c.classList.contains('wide') ? 2 : 1), 0) % 2) all.filter(c => !c.classList.contains('wide')).pop()?.classList.add('wide');
 }
 
@@ -563,10 +696,14 @@ function renderZoom() {
   const html = opts.map(z => `<button type="button" data-zoom="${z}" aria-pressed="${z === zoom}">${ZOOMS[z]}</button>`).join('');
   const seg = $('#zoomSeg'); if (seg.dataset.sig !== html) { seg.innerHTML = html; seg.dataset.sig = html; }
 }
+let ribQuiet = 0;
 function domain() {
   const now = Date.now();
-  const last = data.events.length ? data.events[data.events.length - 1].t : now;
-  const end = data.run.done ? last : Math.max(now, last);
+  const last = Math.max(data.events.length ? data.events[data.events.length - 1].t : now, ...data.events.map(e => e.end).filter(Number.isFinite));
+  let end = data.run.done ? last : Math.max(now, last);
+  const win = { '1d': 24 * H, '2h': 2 * H, '30m': 30 * 60e3 }[zoom];
+  ribQuiet = 0;
+  if (win && data.events.length && end - last > win * .9) { ribQuiet = last; end = last + win * .08; }
   if (zoom === '1d') return [end - 24 * H, end + 20 * 60e3];
   if (zoom === '2h') return [end - 2 * H, end + 6 * 60e3];
   if (zoom === '30m') return [end - 30 * 60e3, end + 2 * 60e3];
@@ -574,20 +711,24 @@ function domain() {
   return [first - 3 * 60e3, end + 5 * 60e3];
 }
 function renderRibbon(D) {
+  if (!D.keySet) storyGroups(D);
   const host = $('#ribbon');
+  const marks = curView() === 'full' ? D.visible : D.visible.filter(e => D.keySet.has(e.id) || D.isOpen(e));
   const W = Math.max(280, host.clientWidth);
   const narrow = W < 560;
   const LW = narrow ? 50 : Math.min(176, Math.max(92, 14 + 6.1 * Math.max(0, ...data.lanes.map(l => l.name.length)))), RH = narrow ? 24 : 27, TOP = 20, PADR = 14;
   const used = new Set(D.visible.map(e => e.lane));
-  const lanes = data.lanes.filter(l => used.has(l.id) || l.status === 'running');
+  const lanes = data.lanes.filter(l => used.has(l.id) || D.active.includes(l));
   const HH = TOP + lanes.length * RH + 4;
   const [d0, d1] = domain();
   const now0 = Date.now(), BW = narrow ? 14 : 18, GAP = 20 * 60e3;
   const pts = [d0, d1, ...D.visible.map(e => e.t)];
   if (!data.run.done && now0 > d0 && now0 < d1) pts.push(now0);
   const ts = [...new Set(pts.filter(t => t >= d0 && t <= d1))].sort((a, b) => a - b);
-  const gaps = [];
+  let gaps = [];
   for (let i = 1; i < ts.length; i++) if (ts[i] - ts[i - 1] > GAP) gaps.push([ts[i - 1] + 4 * 60e3, ts[i] - 4 * 60e3]);
+  const maxGaps = Math.floor((W - LW - PADR) * .35 / BW);
+  if (gaps.length > maxGaps) gaps = gaps.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, maxGaps).sort((a, b) => a[0] - b[0]);
   const cut = gaps.reduce((n, [a, b]) => n + (b - a), 0), active = Math.max(60e3, d1 - d0 - cut);
   const plotW = W - LW - PADR - gaps.length * BW;
   const x = t => {
@@ -617,14 +758,17 @@ function renderRibbon(D) {
     const label = midnight || step >= 6 * H ? dshort(t) + (midnight ? '' : ' ' + hm(t)) : hm(t);
     s += `<g class="rib-tick${midnight ? ' day' : ''}"><line x1="${xx}" x2="${xx}" y1="${TOP - 4}" y2="${HH}"/><text x="${xx}" y="11" text-anchor="middle">${esc(label)}</text></g>`;
   }
+  let lastGapLabel = -1e9;
   for (const [a, b] of gaps) {
     const gx = x(a), mins = Math.round((b - a) / 60e3), lbl = mins >= 90 ? Math.round(mins / 60) + 'h' : mins + 'm';
-    s += `<g class="rib-gap"><rect x="${gx + 2}" y="${TOP - 4}" width="${BW - 4}" height="${HH - TOP + 4}" rx="3"/><path d="M${gx + 5} ${TOP - 4}l${BW / 2 - 5} 4l${BW / 2 - 5} -4M${gx + 5} ${HH - 4}l${BW / 2 - 5} 4l${BW / 2 - 5} -4"/><text x="${gx + BW / 2}" y="11" text-anchor="middle">${lbl}</text><title>${mins} quiet minutes folded</title></g>`;
+    const showLbl = gx + BW / 2 - lastGapLabel >= (narrow ? 24 : 28);
+    if (showLbl) lastGapLabel = gx + BW / 2;
+    s += `<g class="rib-gap"><rect x="${gx + 2}" y="${TOP - 4}" width="${BW - 4}" height="${HH - TOP + 4}" rx="3"/><path d="M${gx + 5} ${TOP - 4}l${BW / 2 - 5} 4l${BW / 2 - 5} -4M${gx + 5} ${HH - 4}l${BW / 2 - 5} 4l${BW / 2 - 5} -4"/>${showLbl ? `<text x="${gx + BW / 2}" y="11" text-anchor="middle">${lbl}</text>` : ''}<title>${mins} quiet minutes folded</title></g>`;
   }
   const yOf = new Map(), NUDGE = [0, -1, 1], near = narrow ? 11 : 13;
   for (const l of lanes) {
     let lastX = -1e9, k = 0;
-    for (const e of D.visible) {
+    for (const e of marks) {
       if (e.lane !== l.id || e.importance < 2) continue;
       const xx = x(e.t);
       k = xx - lastX < near ? k + 1 : 0;
@@ -635,12 +779,19 @@ function renderRibbon(D) {
   const yAt = e => yOf.get(e.id) ?? row[e.lane];
   s += `<g clip-path="url(#plot)">`;
   for (const e of D.visible) {
-    if (!D.isOpen(e) || row[e.lane] == null) continue;
-    s += `<line class="rib-run${e.kind === 'blocked' ? ' blk' : ''}" x1="${x(e.t)}" x2="${x(now)}" y1="${yAt(e)}" y2="${yAt(e)}" style="stroke:var(--k-${e.kind})"/>`;
+    if (e.kind !== 'start' || D.isRunning(e) || row[e.lane] == null) continue;
+    const t1 = D.spanEnd(e);
+    if (t1 - e.t < 3 * 60e3 || t1 < d0 || e.t > d1) continue;
+    s += `<line class="rib-span" x1="${x(Math.max(e.t, d0))}" x2="${x(Math.min(t1, d1))}" y1="${row[e.lane]}" y2="${row[e.lane]}" style="stroke:var(--k-start)"><title>${esc(e.title)}: ${dur(t1 - e.t)}</title></line>`;
   }
-  for (const e of D.visible) for (const c of e.causedBy) {
+  for (const e of D.visible) {
+    if (!D.isOpen(e) || row[e.lane] == null) continue;
+    s += `<line class="rib-run${e.kind === 'blocked' ? ' blk' : ''}" x1="${x(e.t)}" x2="${x(Math.min(now, d1))}" y1="${yAt(e)}" y2="${yAt(e)}" style="stroke:var(--k-${e.kind})"/>`;
+  }
+  const marked = new Set(marks.map(e => e.id));
+  for (const e of marks) for (const c of e.causedBy) {
     const a = data.byId.get(c);
-    if (!a || D.superseded.has(a.id) || row[a.lane] == null || row[e.lane] == null) continue;
+    if (!a || !marked.has(a.id) || row[a.lane] == null || row[e.lane] == null) continue;
     if (Math.max(a.t, e.t) < d0 || Math.min(a.t, e.t) > d1) continue;
     const x1 = x(a.t), y1 = yAt(a), x2 = x(e.t), y2 = yAt(e);
     let d;
@@ -648,7 +799,7 @@ function renderRibbon(D) {
     else { const mx = (x1 + x2) / 2; d = `M${x1} ${y1}C${mx} ${y1},${mx} ${y2},${x2} ${y2}`; }
     s += `<path class="rib-arc${Math.abs(x2 - x1) > (W - LW) * .4 ? ' long' : ''}" data-from="${esc(a.id)}" data-to="${esc(e.id)}" d="${d}" style="stroke:var(--k-${e.kind})"/>`;
   }
-  const order = [...D.visible].sort((a, b) => a.importance - b.importance || a.t - b.t);
+  const order = [...marks].sort((a, b) => a.importance - b.importance || a.t - b.t);
   for (const e of order) {
     if (row[e.lane] == null || e.t < d0 - 60e3 || e.t > d1) continue;
     const cx = x(e.t), cy = yAt(e);
@@ -666,7 +817,10 @@ function renderRibbon(D) {
     const nx = x(now);
     s += `<g class="rib-now"><line x1="${nx}" x2="${nx}" y1="${TOP - 4}" y2="${HH}"/><text x="${Math.min(nx, W - 12)}" y="${TOP - 7}" text-anchor="${nx > W - 40 ? 'end' : 'middle'}">now</text></g>`;
   }
-  host.innerHTML = `<svg viewBox="0 0 ${W} ${HH}" width="${W}" height="${HH}" role="img" aria-label="Events by lane over time">${s}</svg>`;
+  const focused = host.contains(document.activeElement) ? document.activeElement.dataset.id : null;
+  const note = ribQuiet ? `<p class="rib-note">Quiet since ${fmt(ribQuiet)}: showing the last active ${ZOOMS[zoom]}. <button type="button" data-zoom="all">Show all</button></p>` : '';
+  host.innerHTML = `${note}<svg viewBox="0 0 ${W} ${HH}" width="${W}" height="${HH}" role="img" aria-label="Events by lane over time">${s}</svg>`;
+  if (focused) host.querySelector(`.mk[data-id="${CSS.escape(focused)}"]`)?.focus({ preventScroll: true });
   for (const e of D.visible) seen.add('r:' + e.id);
 }
 function renderLegend(D) {
@@ -674,6 +828,37 @@ function renderLegend(D) {
   const html = Object.keys(KINDS).filter(k => used.has(k)).map(k =>
     `<span>${sym(k).replace('class="sym"', 'class="sym" width="14" height="14"')}${esc(kindLabel(k))}</span>`).join('');
   const el = $('#legend'); if (el.dataset.sig !== html) { el.innerHTML = html; el.dataset.sig = html; }
+}
+
+/* ---------- Lanes and models ---------- */
+function renderLanes(D) {
+  const box = $('#lanes');
+  const rows = data.lanes.filter(l => !l.human && D.lanes.get(l.id)?.beats);
+  if (!rows.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const collapsed = ls.get('lcollapsed') === '1';
+  $('#lToggle').textContent = collapsed ? 'Show' : 'Hide';
+  $('#lanesHead').textContent = D.models.size ? 'Lanes and models' : 'Lanes';
+  const activeIds = new Set(D.active.map(l => l.id));
+  const lane = l => {
+    const li = D.lanes.get(l.id), on = activeIds.has(l.id);
+    const state = li.since ? `<b>running</b> since ${fmt(li.since)}` : on ? `<b>active</b> · last beat ${fmt(li.last)}`
+      : /^(done|paused|failed)$/.test(l.status) ? `${esc(l.status)} · last beat ${fmt(li.last)}` : `quiet since ${fmt(li.last)}`;
+    return `<div class="l-row"><i class="dot${on ? ' on' : ''}" title="${on ? 'active now' : 'not active'}"></i><span class="nm">${esc(l.name)}</span>
+      <span class="md2">${li.model ? esc(modelName(li.model)) : ''}</span><span class="st">${state} · ${li.starts} start${li.starts === 1 ? '' : 's'}${li.busy > 60e3 ? ' · ' + dur(li.busy) : ''}</span>${(li.thread && t3A(li.thread, 'T3')) || '<span></span>'}</div>`;
+  };
+  const models = [...D.models.values()].sort((a, b) => b.live - a.live || b.starts.length - a.starts.length || b.beats - a.beats);
+  const top = Math.max(1, ...models.map(m => m.busy));
+  const model = m => `<div class="mo"><div class="mo-n"><span>${esc(m.name)}</span><i class="dot${m.live ? ' on' : ''}" title="${m.live ? 'running now' : 'idle'}"></i></div>
+    <div class="mo-s">${m.starts.length} start${m.starts.length === 1 ? '' : 's'}${m.busy > 60e3 ? ' · ' + dur(m.busy) : ''} · ${[...m.lanes].map(id => esc(data.laneMap[id]?.short || id)).join(', ')}</div>
+    ${m.busy > 60e3 ? `<div class="mo-bar" style="width:${(m.busy / top * 100).toFixed(1)}%"></div>` : ''}
+    ${m.starts.length ? `<details><summary>What it did</summary><ul>${m.starts.slice(-12).reverse().map(e => `<li><a href="#${esc(e.id)}" data-open="${esc(e.id)}">${esc(e.title)}</a></li>`).join('')}</ul></details>` : ''}</div>`;
+  const html = collapsed ? '' : `<div class="l-list">${rows.map(lane).join('')}</div>${models.length ? `<div class="mo-grid">${models.map(model).join('')}</div>` : ''}`;
+  const body = $('#lBody');
+  const open = new Set([...body.querySelectorAll('details[open]')].map(d => d.closest('.mo')?.querySelector('.mo-n span')?.textContent));
+  if (body.dataset.sig === html) return;
+  body.dataset.sig = html; body.innerHTML = html;
+  body.querySelectorAll('.mo').forEach(m => { if (open.has(m.querySelector('.mo-n span').textContent)) m.querySelector('details')?.setAttribute('open', ''); });
 }
 
 /* ---------- Metrics panel ---------- */
@@ -685,7 +870,7 @@ function fmtMetric(m) {
   if (/^(US|A)?\$$/.test(u)) return u + v;
   return u ? `${v} ${u}` : v;
 }
-const ratio = p => typeof p.value === 'number' ? (p.of ? p.value / p.of : p.value) : NaN;
+const ratio = p => { if (typeof p.value !== 'number') return NaN; const of = +p.of || +(/^\/\s*(\d+(\.\d+)?)$/.exec(p.unit || '') || [])[1]; return of ? p.value / of : p.value; };
 function metricGroups() {
   const groups = new Map();
   for (const m of data.metrics) { if (!groups.has(m.name)) groups.set(m.name, []); groups.get(m.name).push(m); }
@@ -698,7 +883,11 @@ function renderMetrics() {
   const collapsed = ls.get('mcollapsed') === '1';
   $('#mToggle').textContent = collapsed ? 'Show' : 'Hide';
   const grid = $('#mGrid'); grid.hidden = collapsed;
-  grid.innerHTML = [...metricGroups().entries()].map(([name, pts]) => {
+  const groups = [...metricGroups().entries()];
+  const series = groups.filter(([, pts]) => pts.length > 1).sort((a, b) => b[1][b[1].length - 1].t - a[1][a[1].length - 1].t);
+  const singles = groups.filter(([, pts]) => pts.length === 1);
+  const allOpen = ls.get('mall') === '1', FOLD = 8;
+  const cards = series.slice(0, allOpen ? series.length : FOLD).map(([name, pts]) => {
     const last = pts[pts.length - 1], prev = pts[pts.length - 2];
     let delta = '';
     if (prev && !Number.isNaN(ratio(last)) && !Number.isNaN(ratio(prev))) {
@@ -716,6 +905,10 @@ function renderMetrics() {
     const lane = last.lane && data.laneMap[last.lane] ? data.laneMap[last.lane].short + ' · ' : '';
     return `<div class="m-card" title="${esc(last.note || '')}"><div class="m-name">${esc(name)}</div><div class="m-row"><span class="m-val">${esc(fmtMetric(last))}</span>${delta}</div>${spark}<div class="m-foot">${esc(lane)}${fmt(last.t)}${last.note ? ' · ' + esc(last.note) : ''}</div></div>`;
   }).join('');
+  const chips = singles.map(([name, [m]]) => `<span class="m-chip" title="${esc(fmt(m.t) + (m.note ? ' · ' + m.note : ''))}">${esc(name)}<b>${esc(fmtMetric(m))}</b></span>`).join('');
+  const more = series.length > FOLD ? `<button class="iconbtn m-all" id="mAll" type="button">${allOpen ? 'Show fewer' : `Show all ${series.length} measures`}</button>` : '';
+  const html = (cards ? `<div class="m-grid">${cards}</div>` : '') + more + (chips ? `<div class="m-chips">${chips}</div>` : '');
+  if (grid.dataset.sig !== html) { grid.innerHTML = html; grid.dataset.sig = html; }
 }
 
 /* ---------- Story ---------- */
@@ -745,12 +938,14 @@ function shots(imgs) {
 function shotsHTML(imgs, popup) {
   const { pair, list } = shots(imgs);
   const show = popup ? list : list.slice(0, pair ? 2 : 4);
+  const extra = popup ? 0 : imgs.length - show.length;
   const fig = (i, k) => {
+    const badge = extra > 0 && i === show[show.length - 1] ? `<span class="more-n">+${extra}</span>` : '';
     const label = pair && k < 2 ? (k ? 'After' : 'Before') : '';
     const note = (label ? String(i.caption || '').replace(PHASE, '') : String(i.caption || '')).replace(/^\((.*)\)$/, '$1').trim();
     const img = `<img src="${safeHref(i.path)}" alt="${esc(i.caption || '')}" loading="lazy">`;
     const frame = popup ? `<a class="frame" href="${safeHref(i.full || i.path)}" target="_blank" rel="noopener">${img}</a>` : `<span class="frame" title="${esc(i.caption || '')}">${img}</span>`;
-    return `<figure class="shot">${frame}${label || note ? `<figcaption>${label ? `<b>${label}</b>` : ''}${note ? `<span>${esc(note)}</span>` : ''}</figcaption>` : ''}</figure>`;
+    return `<figure class="shot">${frame}${badge}${label || note ? `<figcaption>${label ? `<b>${label}</b>` : ''}${note ? `<span>${esc(note)}</span>` : ''}</figcaption>` : ''}</figure>`;
   };
   const head = pair ? `<div class="${popup ? 'm-imgs' : 'b-imgs'} cmp" style="--n:2">${show.slice(0, 2).map(fig).join('')}</div>` : '';
   const rest = pair ? show.slice(2) : show;
@@ -772,11 +967,12 @@ function beatHTML(e, D) {
     <div class="b-time">${hm(e.t)}${multiDay ? `<small>${esc(dshort(e.t))}</small>` : ''}</div>
     <div class="b-mark">${sym(e.kind)}</div>
     <button class="b-card" type="button" data-open="${esc(e.id)}">
-      <div class="b-meta"><span class="b-tm">${hm(e.t)}</span><span class="b-kind">${esc(kindLabel(e.kind))}</span><span>${esc(lane)}</span>${pill}${unseen(e) ? '<span class="pill new">new</span>' : ''}${hasMore ? '<span class="more">Details</span>' : ''}</div>
+      <div class="b-meta"><span class="b-tm">${hm(e.t)}</span><span class="b-kind">${esc(kindLabel(e.kind))}</span><span>${esc(lane)}</span>${e.model ? `<span class="b-model">${esc(modelName(e.model))}</span>` : ''}${pill}${unseen(e) ? '<span class="pill new">new</span>' : ''}${hasMore ? '<span class="more">Details</span>' : ''}</div>
       <h3>${esc(e.title)}</h3>
       ${e.summary ? `<p class="b-sum">${esc(e.summary)}</p>` : ''}
       ${e.images.length ? shotsHTML(e.images, false) : ''}
       ${D.isBlocked(e) && e.ask ? `<p class="b-why">Ask: ${esc(e.ask)}</p>` : e.importance === 3 && e.why ? `<p class="b-why">${esc(e.why)}</p>` : ''}
+      ${e.choices.length ? `<div class="b-choices">${e.choices.map(c => `<span>${esc(c)}</span>`).join('')}</div>` : ''}
       ${nums.length ? `<dl class="b-nums">${nums.map(numHTML).join('')}</dl>` : ''}
       ${from.length ? `<div class="b-foot"><span class="b-from">↳ after ${from.map(f => esc(f.title)).join(' · ')}</span></div>` : ''}
     </button>`;
@@ -784,46 +980,97 @@ function beatHTML(e, D) {
 function quietHTML(e) {
   return `<span class="q-time">${hm(e.t)}</span><span class="q-dot"><i></i></span><button class="q-text" type="button" data-open="${esc(e.id)}"><span class="b-tm">${hm(e.t)}</span><b>${esc(e.title)}</b>${e.summary ? ' — ' + esc(e.summary) : ''}</button>`;
 }
-function renderStory(D) {
-  const story = $('#story');
-  const chapters = data.chapters.length ? data.chapters : [{ id: '_', title: 'The story so far', summary: '' }];
+const VIEWS = { story: 'Story', highlights: 'Highlights', full: 'Full' };
+let view = ls.get('view') || '';
+const curView = () => VIEWS[view] ? view : (data.events.length > 120 || (data.run.done && data.events.length > 30) ? 'story' : 'full');
+const expanded = new Set();
+const KRANK = { blocked: 0, breakthrough: 1, fail: 2, nudge: 3, sealed: 3, review: 4, success: 5, decision: 6, start: 7, update: 8, spend: 9 };
+function pickKeys(c, evs, D, n = 4) {
+  if (c.keyBeats && c.keyBeats.length) { const ids = new Set(c.keyBeats); const k = evs.filter(e => ids.has(e.id)); if (k.length) return k; }
+  const ranked = evs.filter(e => e.kind !== 'spend').sort((a, b) => D.isBlocked(b) - D.isBlocked(a) || (b.importance === 3) - (a.importance === 3) || KRANK[a.kind] - KRANK[b.kind] || b.importance - a.importance || a.t - b.t);
+  const pick = [], per = {};
+  for (const e of ranked) { if (pick.length >= n) break; if ((per[e.kind] || 0) >= 2) continue; per[e.kind] = (per[e.kind] || 0) + 1; pick.push(e); }
+  for (const e of ranked) { if (pick.length >= n) break; if (!pick.includes(e)) pick.push(e); }
+  return pick.sort((a, b) => a.t - b.t);
+}
+function storyGroups(D) {
+  const chapters = data.chapters.length ? data.chapters : [{ id: '_', title: 'The story so far', summary: '', digest: '', outcome: '', keyBeats: [] }];
   const groups = new Map(chapters.map(c => [c.id, []]));
   for (const e of D.visible) groups.get(chapterOf(e))?.push(e);
+  const keys = new Map(chapters.map(c => [c.id, pickKeys(c, groups.get(c.id), D)]));
+  D.keySet = new Set([...keys.values()].flat().map(e => e.id));
+  return { chapters, groups, keys };
+}
+function renderViewBar(G) {
+  const v = curView();
+  const seg = Object.entries(VIEWS).map(([k, label]) => `<button type="button" data-view="${k}" aria-pressed="${k === v}">${label}</button>`).join('');
+  const el = $('#viewSeg'); if (el.dataset.sig !== seg) { el.innerHTML = seg; el.dataset.sig = seg; }
+  let n = 0;
+  const jump = G.chapters.filter(c => G.groups.get(c.id).length).map(c => `<button type="button" data-jump="${esc(c.id)}" title="${esc(c.title)}"><b>${roman(++n)}</b>${esc(c.title)}</button>`).join('');
+  const j = $('#jump'); if (j.dataset.sig !== jump) { j.innerHTML = jump; j.dataset.sig = jump; }
+  j.hidden = n < 3;
+}
+function heroOf(keys, evs) {
+  const withImg = e => e.images.length && e.kind !== 'sealed';
+  return keys.find(withImg) || [...evs].sort((a, b) => b.importance - a.importance).find(withImg) || null;
+}
+function storyHTML(c, evs, keys) {
+  const hero = heroOf(keys, evs);
+  const img = hero ? hero.images.find(i => !/^\s*before\b/i.test(i.caption || '')) || hero.images[0] : null;
+  return `${c.digest ? `<p class="ch-digest">${esc(c.digest)}</p>` : ''}${c.outcome ? `<p class="ch-outcome"><b>Outcome:</b> ${esc(c.outcome)}</p>` : ''}
+    ${img ? `<button class="ch-hero" type="button" data-open="${esc(hero.id)}"><span class="frame"><img src="${safeHref(img.path)}" alt="${esc(img.caption || hero.title)}" loading="lazy"></span></button>` : ''}
+    <ul class="keys">${keys.map(e => `<li><button type="button" data-open="${esc(e.id)}" style="--kc:var(--k-${e.kind})">${sym(e.kind)}<span class="kt">${hm(e.t)}</span><span class="kx">${esc(e.title)}</span></button></li>`).join('')}</ul>`;
+}
+function renderStory(D, G) {
+  const story = $('#story');
+  const { chapters, groups, keys } = G;
+  const v = curView();
   if (firstRender) story.innerHTML = '';
   if (!D.visible.length) { story.innerHTML = '<p class="empty">No events yet.</p>'; return []; }
   story.querySelector('.empty')?.remove();
+  const digest = v !== 'full' && data.run.digest.length ? `<h2>The run in brief</h2>${data.run.digest.map(l => `<p>${esc(l)}</p>`).join('')}` : '';
+  let rd = story.querySelector('.run-digest');
+  if (digest && !rd) { rd = document.createElement('section'); rd.className = 'run-digest'; story.prepend(rd); }
+  if (rd && !digest) { rd.remove(); rd = null; }
+  if (rd && rd.dataset.sig !== digest) { rd.innerHTML = digest; rd.dataset.sig = digest; }
   const fresh = [];
   const liveIdx = (() => { let i = -1; chapters.forEach((c, k) => { if (groups.get(c.id).length) i = k; }); return i; })();
-  let prevEl = null;
+  let prevEl = rd, shownN = 0;
+  const place = sec => { if (prevEl) prevEl.after(sec); else story.prepend(sec); };
   chapters.forEach((c, idx) => {
-    const evs = groups.get(c.id);
+    const evs = groups.get(c.id), ks = keys.get(c.id);
     let sec = story.querySelector(`.chapter[data-ch="${CSS.escape(c.id)}"]`);
     if (!evs.length) { if (sec) sec.remove(); return; }
+    shownN++;
     if (!sec) {
       sec = document.createElement('section');
       sec.className = 'chapter'; sec.dataset.ch = c.id;
       if (firstRender) sec.style.animationDelay = Math.min(idx, 8) * 60 + 'ms';
-      sec.innerHTML = `<header class="ch-head"></header><ol class="beats"></ol><button class="q-toggle" type="button" hidden></button>`;
-      if (prevEl) prevEl.after(sec); else story.prepend(sec);
-    } else if (prevEl ? prevEl.nextElementSibling !== sec : story.firstElementChild !== sec) {
-      if (prevEl) prevEl.after(sec); else story.prepend(sec);
-    }
+      sec.innerHTML = `<header class="ch-head"></header><div class="ch-story" hidden></div><ol class="beats"></ol><button class="q-toggle" type="button" hidden></button><button class="ch-more" type="button" hidden></button>`;
+      place(sec);
+    } else if (prevEl ? prevEl.nextElementSibling !== sec : story.firstElementChild !== sec) place(sec);
     prevEl = sec;
+    const open = v === 'full' || expanded.has(c.id);
     const t0 = evs[0].t, t1 = evs[evs.length - 1].t;
     const live = idx === liveIdx && !data.run.done;
-    const head = `<div class="ch-n" aria-hidden="true">${roman(idx + 1)}</div><div class="ch-span"><span>Chapter ${roman(idx + 1)} · ${fmt(t0)} – ${live ? 'now' : fmt(t1)}</span>${live ? '<span class="ch-live">Now</span>' : ''}</div><h2>${esc(c.title)}</h2>${c.summary ? `<p class="ch-sum">${esc(c.summary)}</p>` : ''}`;
+    const count = v === 'full' ? '' : ` · ${evs.length} beat${evs.length === 1 ? '' : 's'}`;
+    const head = `<div class="ch-n" aria-hidden="true">${roman(shownN)}</div><div class="ch-span"><span>Chapter ${roman(shownN)} · ${fmt(t0)} – ${live ? 'now' : fmt(t1)}${count}</span>${live ? '<span class="ch-live">Now</span>' : ''}</div><h2>${esc(c.title)}</h2>${c.summary ? `<p class="ch-sum">${esc(c.summary)}</p>` : ''}`;
     const hEl = sec.querySelector('.ch-head');
     if (hEl.dataset.sig !== head) { hEl.innerHTML = head; hEl.dataset.sig = head; }
+    const st = sec.querySelector('.ch-story');
+    st.hidden = v !== 'story';
+    if (v === 'story') { const html = storyHTML(c, evs, ks); if (st.dataset.sig !== html) { st.innerHTML = html; st.dataset.sig = html; } }
+    const show = open ? evs : v === 'highlights' ? ks : [];
     const list = sec.querySelector('.beats');
     const existing = new Map([...list.children].map(li => [li.dataset.id, li]));
-    const want = new Set(evs.map(e => e.id));
+    const want = new Set(show.map(e => e.id));
     for (const [id, li] of existing) if (!want.has(id)) li.remove();
     let prevLi = null;
-    for (const e of evs) {
-      const quiet = e.importance === 1 && !D.isBlocked(e);
+    for (const e of show) {
+      const quiet = open && e.importance === 1 && !D.isBlocked(e);
       const html = quiet ? quietHTML(e) : beatHTML(e, D);
       let li = existing.get(e.id);
-      const cls = quiet ? `quiet k-${e.kind}` : `beat imp${D.isBlocked(e) ? 3 : e.importance} k-${e.kind}${D.isBlocked(e) ? ' open' : ''}`;
+      const cls = quiet ? `quiet k-${e.kind}` : `beat imp${D.isBlocked(e) ? 3 : Math.max(2, e.importance)} k-${e.kind}${D.isBlocked(e) ? ' open' : ''}`;
       if (!li || !li.isConnected) {
         li = document.createElement('li');
         li.dataset.id = e.id;
@@ -838,13 +1085,19 @@ function renderStory(D) {
         if (prevLi ? prevLi.nextElementSibling !== li : list.firstElementChild !== li) { if (prevLi) prevLi.after(li); else list.prepend(li); }
       }
       prevLi = li;
-      seen.add('s:' + e.id);
     }
-    const quiets = evs.filter(e => e.importance === 1 && !D.isBlocked(e));
+    for (const e of evs) seen.add('s:' + e.id);
+    list.hidden = !show.length;
+    const quiets = open ? evs.filter(e => e.importance === 1 && !D.isBlocked(e)) : [];
     const tg = sec.querySelector('.q-toggle');
     tg.hidden = !quiets.length;
-    const shown = sec.classList.contains('show-quiet');
-    tg.innerHTML = `<span class="dots">${quiets.slice(0, 6).map(e => `<i style="--kc:var(--k-${e.kind})"></i>`).join('')}</span>${shown ? 'Hide' : 'Show'} ${quiets.length} quiet update${quiets.length === 1 ? '' : 's'}`;
+    const shownQ = sec.classList.contains('show-quiet');
+    tg.innerHTML = `<span class="dots">${quiets.slice(0, 6).map(e => `<i style="--kc:var(--k-${e.kind})"></i>`).join('')}</span>${shownQ ? 'Hide' : 'Show'} ${quiets.length} quiet update${quiets.length === 1 ? '' : 's'}`;
+    const more = sec.querySelector('.ch-more');
+    const rest = evs.length - ks.length;
+    more.hidden = v === 'full' || rest <= 0;
+    more.dataset.ch = c.id;
+    more.textContent = expanded.has(c.id) ? 'Show key beats only' : `Show ${rest} more`;
   });
   story.querySelectorAll('.chapter').forEach(sec => { if (!chapters.some(c => c.id === sec.dataset.ch)) sec.remove(); });
   return fresh;
@@ -872,10 +1125,10 @@ function renderFeed() {
   const f = $('#feed'), t = $('#feedText');
   if (feedState === 'bad') { f.className = 'feed bad'; t.textContent = 'Feed unreadable — retrying'; return; }
   if (feedState === 'stale') { f.className = 'feed stale'; t.textContent = `Last good copy${lastGoodAt ? ' ' + hm(lastGoodAt) : ''} · newest file unreadable`; return; }
-  if (data.run.done) { f.className = 'feed quiet'; t.textContent = 'Finished · updated ' + fmt(data.updated || Date.now()); return; }
+  if (data.run.done) { f.className = 'feed is-quiet'; t.textContent = 'Finished · updated ' + fmt(data.updated || Date.now()); return; }
   const quietFor = data.updated ? Date.now() - data.updated : 0;
   const stale = quietFor > data.run.staleAfterMin * 60e3;
-  f.className = 'feed' + (stale ? ' quiet' : '');
+  f.className = 'feed' + (stale ? ' is-quiet' : '');
   t.textContent = data.updated ? (stale ? `No update for ${ago(data.updated).replace(' ago', '')} — keeper stopped?` : `updated ${ago(data.updated)}`) : 'checked ' + hm(Date.now());
   f.title = data.updated ? 'Feed written ' + fmt(data.updated) + ' · checked ' + hm(Date.now()) : '';
 }
@@ -907,9 +1160,12 @@ function safeImagePath(value) {
 }
 function safeHref(p) {
   p = String(p).replace(/&amp;/g, '&');
-  if (/^https:\/\//i.test(p)) return esc(p);
-  if (BLOCKED_LINK.test(p) || /^[a-z]+:/i.test(p)) return null;
-  return esc(p);
+  let u;
+  try { u = new URL(p, location.href); } catch { return null; }
+  if (/^https:\/\//i.test(p)) return u.protocol === 'https:' ? esc(p) : null;
+  const dir = location.pathname.replace(/[^/]*$/, '');
+  if (/[\x00-\x20\\]|%2e|%2f|%5c/i.test(p) || /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(p) || BLOCKED_LINK.test(p)) return null;
+  return u.origin === location.origin && u.pathname.startsWith(dir) ? esc(p) : null;
 }
 function showModal() {
   const m = $('#modal');
@@ -935,10 +1191,11 @@ function openEvent(id) {
   const sheet = $('#sheet');
   sheet.style.setProperty('--kc', `var(--k-${e.kind})`);
   sheet.innerHTML = `
-    <div class="m-top">${sym(e.kind)}<div class="meta"><b>${esc(kindLabel(e.kind))}</b> · ${esc(lane)}<br>${esc(day(e.t))} ${hm(e.t)}${!Number.isNaN(e.updated) ? ' · updated ' + fmt(e.updated) : ''}${status}</div><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div class="m-top">${sym(e.kind)}<div class="meta"><b>${esc(kindLabel(e.kind))}</b> · ${esc(lane)}${e.model ? ' · ' + esc(modelName(e.model)) : ''}${e.kind === 'start' && D.spanEnd(e) - e.t > 60e3 ? ' · ' + dur(D.spanEnd(e) - e.t) : ''}<br>${esc(day(e.t))} ${hm(e.t)}${!Number.isNaN(e.updated) ? ' · updated ' + fmt(e.updated) : ''}${status}</div><button class="x" type="button" data-close aria-label="Close">×</button></div>
     <h3 id="mTitle">${esc(e.title)}</h3>
     ${e.summary ? `<p class="lead">${esc(e.summary)}</p>` : ''}
-    ${e.ask ? `<div class="why"><b>${D.isBlocked(e) ? 'What it needs from you' : 'What it needed'}</b>${esc(e.ask)}</div>` : ''}
+    ${e.ask ? `<div class="why"><b>${D.isBlocked(e) ? 'What it needs from you' : 'What it needed'}</b>${esc(e.ask)}${e.choices.length ? `<div class="b-choices">${e.choices.map(c => `<span>${esc(c)}</span>`).join('')}</div>` : ''}</div>` : ''}
+    ${t3Href(D.isBlocked(e) ? data.run.t3?.thread || threadOf(e, D) : threadOf(e, D)) ? `<p class="msec">${t3A(D.isBlocked(e) ? data.run.t3?.thread || threadOf(e, D) : threadOf(e, D), D.isBlocked(e) ? 'Answer in T3' : 'Open the thread in T3')}</p>` : ''}
     ${e.why ? `<div class="why"><b>Why it mattered</b>${esc(e.why)}</div>` : ''}
     ${e.detail ? `<div class="msec"><h4>What happened</h4><div class="md">${md(e.detail)}</div></div>` : ''}
     ${e.images.length ? `<div class="msec"><h4>${shots(e.images).pair ? 'Before and after' : 'Snapshots'}</h4>${shotsHTML(e.images, true)}</div>` : ''}
@@ -960,7 +1217,7 @@ function sinceOf(r) {
   if (r === '2h') return now - 2 * H;
   if (r === 'today') { const k = dayKey.format(new Date(now)); let t = now; while (dayKey.format(new Date(t - 15 * 60e3)) === k && t > data.run.start) t -= 15 * 60e3; return t; }
   if (r === 'look') return prevLook || data.run.start;
-  return data.run.start;
+  return Math.min(data.run.start, data.events.length ? data.events[0].t : Infinity);
 }
 function updateText(r) {
   const D = derive(), h = data.headline || {}, since = sinceOf(r);
@@ -973,9 +1230,20 @@ function updateText(r) {
   const inRange = e => r === 'look' ? !prevSeen || !prevSeen.has(e.id) : e.t >= since;
   const beats = D.visible.filter(e => inRange(e) && (e.importance >= 2 || D.isBlocked(e)) && e.kind !== 'spend');
   L.push('');
-  L.push(r === 'all' ? 'What happened:' : r === 'look' ? `New since your last look (${fmt(prevLook)}):` : `Since ${fmt(since)}:`);
-  if (!beats.length) L.push('- Nothing major; work continues.');
-  for (const e of beats) L.push(`- ${fmt(e.t)} ${MARK[e.kind] || '·'} ${e.title}${e.summary ? ' — ' + e.summary : ''}`);
+  const G = storyGroups(D);
+  if (r === 'all' && (data.run.digest.length || data.chapters.some(c => c.digest))) {
+    if (data.run.digest.length) { L.push(...data.run.digest); L.push(''); }
+    L.push('The story:');
+    for (const c of G.chapters) {
+      const evs = G.groups.get(c.id); if (!evs.length) continue;
+      L.push(`- ${c.title} (${fmt(evs[0].t)}): ${c.digest || c.summary || ''}`.trim());
+      for (const e of G.keys.get(c.id)) L.push(`  ${MARK[e.kind] || '·'} ${e.title}`);
+    }
+  } else {
+    L.push(r === 'all' ? 'What happened:' : r === 'look' ? `New since your last look (${fmt(prevLook)}):` : `Since ${fmt(since)}:`);
+    if (!beats.length) L.push('- Nothing major; work continues.');
+    for (const e of beats) L.push(`- ${fmt(e.t)} ${MARK[e.kind] || '·'} ${e.title}${e.summary ? ' — ' + e.summary : ''}`);
+  }
   const running = D.visible.filter(D.isRunning);
   if (running.length) { L.push(''); L.push('In progress:'); for (const e of running) L.push(`- ${e.title} (since ${fmt(e.t)})`); }
   if (D.blockers.length) { L.push(''); L.push('Waiting on a decision:'); for (const e of D.blockers) L.push(`- ${e.title}${e.ask ? ' — ' + e.ask : e.summary ? ' — ' + e.summary : ''}`); }
@@ -1030,15 +1298,20 @@ function render() {
   if (!data) { $('#story').innerHTML = '<p class="empty">Waiting for <code>live/events.json</code>…</p>'; return; }
   document.title = data.run.title;
   $('#runTitle').textContent = data.run.title;
-  $('#eyebrow').textContent = data.run.eyebrow || `${day(data.run.start)}${multiDay ? ' – ' + day(Date.now()) : ''} · ${data.run.done ? 'finished' : 'live'}`;
+  const endT = data.run.done ? (data.run.end || (data.events.length ? data.events[data.events.length - 1].t : Date.now())) : Date.now();
+  $('#eyebrow').textContent = data.run.eyebrow || `${day(data.run.start)}${multiDay ? ' – ' + day(endT) : ''} · ${data.run.done ? 'finished' : 'live'}`;
   if (data.run.footer) $('#foot').textContent = data.run.footer;
-  const D = derive();
+  const D = derive(), G = storyGroups(D);
+  const t3 = t3Href(), tb = $('#t3Btn');
+  tb.hidden = !t3; if (t3) tb.setAttribute('href', t3.replace(/&amp;/g, '&'));
   renderStrip(D);
   renderZoom();
   renderRibbon(D);
   renderLegend(D);
+  renderLanes(D);
   renderMetrics();
-  const fresh = renderStory(D);
+  renderViewBar(G);
+  const fresh = renderStory(D, G);
   if (firstRender) {
     pendingNew = D.visible.filter(unseen).map(e => e.id);
     const id = decodeURIComponent(location.hash.slice(1));
@@ -1062,9 +1335,16 @@ function applyTheme() {
 $('#themeBtn').addEventListener('click', () => { theme = theme === 'auto' ? 'light' : theme === 'light' ? 'dark' : 'auto'; ls.set('theme', theme); applyTheme(); });
 $('#updBtn').addEventListener('click', () => { if (data) openUpdate(); });
 $('#mToggle').addEventListener('click', () => { ls.set('mcollapsed', ls.get('mcollapsed') === '1' ? '0' : '1'); renderMetrics(); });
+$('#lToggle').addEventListener('click', () => { ls.set('lcollapsed', ls.get('lcollapsed') === '1' ? '0' : '1'); if (data) renderLanes(derive()); });
+document.addEventListener('load', ev => { const img = ev.target; if (img.tagName === 'IMG' && img.naturalHeight > img.naturalWidth * 1.1) img.closest('.frame')?.classList.add('tall'); }, true);
 document.addEventListener('click', ev => {
   const close = ev.target.closest('[data-close]'); if (close) { closeModal(); return; }
   const z = ev.target.closest('[data-zoom]'); if (z) { zoom = z.dataset.zoom; ls.set('zoom', zoom); renderZoom(); renderRibbon(derive()); return; }
+  const vw = ev.target.closest('[data-view]'); if (vw) { view = vw.dataset.view; ls.set('view', view); expanded.clear(); render(); return; }
+  const jp = ev.target.closest('[data-jump]'); if (jp) { $(`.chapter[data-ch="${CSS.escape(jp.dataset.jump)}"]`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); return; }
+  const cm = ev.target.closest('.ch-more'); if (cm) { const id = cm.dataset.ch; if (expanded.has(id)) expanded.delete(id); else expanded.add(id); render(); return; }
+  const gt = ev.target.closest('[data-goto]'); if (gt) { const el = $('#' + gt.dataset.goto); if (el && !el.hidden) { if (ls.get('lcollapsed') === '1') { ls.set('lcollapsed', '0'); render(); } el.scrollIntoView({ block: 'start' }); } return; }
+  if (ev.target.id === 'mAll') { ls.set('mall', ls.get('mall') === '1' ? '0' : '1'); renderMetrics(); return; }
   const rg = ev.target.closest('[data-range]'); if (rg) { updRange = rg.dataset.range; ls.set('updRange', updRange); openUpdate(); return; }
   if (ev.target.id === 'copyUpd') { const ta = $('#updText'), b = ev.target; const done = () => { b.textContent = 'Copied'; }; if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(done, () => ta.select()); else { ta.select(); try { document.execCommand('copy'); done(); } catch {} } return; }
   const o = ev.target.closest('[data-open]'); if (o && !o.disabled) { openEvent(o.dataset.open); return; }
@@ -1115,8 +1395,10 @@ let lastInput = Date.now();
 const wake = () => { lastInput = Date.now(); document.documentElement.classList.remove('is-resting'); };
 ['keydown', 'pointerdown', 'pointermove', 'wheel', 'touchstart', 'scroll'].forEach(t => addEventListener(t, wake, { passive: true, capture: true }));
 setInterval(() => { if (Date.now() - lastInput > 120e3) document.documentElement.classList.add('is-resting'); }, 10e3);
-setInterval(load, 60e3);
-setInterval(() => { if (data) { renderRibbon(derive()); renderFeed(); } }, 30e3);
+let lastLoad = Date.now();
+setInterval(() => { if (document.hidden || Date.now() - lastLoad < 55e3) return; lastLoad = Date.now(); load(); }, 5e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastLoad > 55e3) { lastLoad = Date.now(); load(); } });
+setInterval(() => { if (data && !document.hidden) { const D = derive(); renderStrip(D); renderRibbon(D); renderLanes(D); renderFeed(); } }, 30e3);
 })();
 </script>
 </body>

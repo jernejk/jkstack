@@ -55,6 +55,7 @@ def main():
     ev = sorted(d["events"], key=lambda e: t(e["time"]))
     now = datetime.now(t(ev[-1]["time"]).tzinfo) if ev else datetime.now().astimezone()
     start = t(run["start"]) if run.get("start") else (t(ev[0]["time"]) if ev else now)
+    start = min([start] + [t(ev[0]["time"])] if ev else [start])
     since = since_of(a.since, now, start)
     gone = {e["supersedes"] for e in ev if e.get("supersedes")}
     ev = [e for e in ev if e["id"] not in gone]
@@ -79,7 +80,19 @@ def main():
         out.append(f"Best so far: {h['best']['text']}" + (f" ({h['best']['note']})" if h["best"].get("note") else ""))
     beats = [e for e in ev if t(e["time"]) >= since and (e["importance"] >= 2 or e in blockers) and e["kind"] != "spend"]
     out += ["", "What happened:" if a.since == "all" else f"Since {since.strftime('%a %H:%M' if since.date() != now.date() else '%H:%M')}:"]
-    out += [f"- {hm(e)} {MARK.get(e['kind'], '·')} {e['title']} — {e['summary']}" for e in beats] or ["- Nothing major; work continues."]
+    line = lambda e: f"- {hm(e)} {MARK.get(e['kind'], '·')} {e['title']} — {e['summary']}"
+    chapters = {c["id"]: c for c in d.get("chapters", [])}
+    if a.since == "all" and any((chapters.get(e.get("chapter")) or {}).get("digest") for e in beats):
+        for cid in dict.fromkeys(e.get("chapter") for e in beats):
+            c, inside = chapters.get(cid) or {}, [e for e in beats if e.get("chapter") == cid]
+            out.append(f"{c.get('title', 'Other')}:" if c else "Other:")
+            if c.get("digest"):
+                out.append(f"  {c['digest']}")
+            keys = [e for e in inside if e["id"] in c.get("keyBeats", [])] if c.get("digest") and len(inside) > 12 else inside
+            if not (c.get("digest") and len(inside) > 12 and not keys):
+                out += ["  " + line(e) for e in keys]
+    else:
+        out += [line(e) for e in beats] or ["- Nothing major; work continues."]
     running = [e for e in ev if e["kind"] == "start" and e.get("state") == "running"]
     if running:
         out += ["", "In progress:"] + [f"- {e['title']} (since {hm(e)})" for e in running]

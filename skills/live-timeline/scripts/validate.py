@@ -4,6 +4,7 @@
   python3 live/validate.py live/events.next.json --install
   python3 live/validate.py                      # checks live/events.json
 """
+import contextlib
 import json
 import os
 import re
@@ -50,11 +51,41 @@ def deny_terms(cfg):
     return words, phrases
 
 
+def _ok(value):
+    try:
+        when(value)
+        return True
+    except Exception:
+        return False
+
+
 def when(value):
     t = datetime.fromisoformat(str(value))
     if t.tzinfo is None:
         raise ValueError("no UTC offset")
     return t
+
+
+EVENT_KEYS = {"id", "time", "lane", "kind", "importance", "chapter", "title", "summary", "why", "ask", "detail", "numbers",
+              "links", "images", "causedBy", "state", "supersedes", "updated", "model", "thread", "end", "choices"}
+ID_RE = re.compile(r"[A-Za-z0-9_:%.-]{1,200}")
+UNSAFE_ID = re.compile(r"\.\.|%2[ef]|%5c", re.I)
+
+
+def valid_id(value):
+    return isinstance(value, str) and bool(ID_RE.fullmatch(value)) and not UNSAFE_ID.search(value)
+
+
+def private_path(path, root):
+    """True when a resolved path passes through a `private` directory (below the root, or anywhere outside it)."""
+    p, base = Path(path).resolve(), Path(root).resolve()
+    if base in p.parents:
+        parts = p.relative_to(base).parts
+    else:
+        parts = p.parts[1:]
+        if parts[:1] == ("private",) and parts[1:2] in (("var",), ("tmp",), ("etc",)):
+            parts = parts[2:]
+    return any(x.lower() == "private" for x in parts)
 
 
 def safe_image_path(value):
@@ -79,9 +110,12 @@ def check(path, cfg=None):
     blocked = re.compile(BASE_BLOCKED + ("|" + cfg["blockedLinks"] if cfg.get("blockedLinks") else ""), re.I)
     lanes = {l.get("id") for l in data.get("lanes", []) if isinstance(l, dict)}
     chapters = {c.get("id") for c in data.get("chapters", []) if isinstance(c, dict)}
-    ids = set()
+    ids, times, by_id = set(), {}, {}
     for e in data["events"]:
         if isinstance(e, dict) and e.get("id"):
+            by_id.setdefault(e["id"], e)
+            with contextlib.suppress(Exception):
+                times[e["id"]] = when(e.get("time"))
             if e["id"] in ids:
                 errors.append(f"duplicate id {e['id']}")
             ids.add(e["id"])
@@ -113,6 +147,12 @@ def check(path, cfg=None):
         for c in e.get("causedBy", []) or []:
             if c not in ids:
                 errors.append(f"{eid}: causedBy {c!r} does not exist")
+            elif c == eid:
+                warnings.append(f"{eid}: causedBy cites itself")
+            elif c in times and eid in times and times[c] > times[eid]:
+                warnings.append(f"{eid}: causedBy {c} happened later")
+        for key in set(e) - EVENT_KEYS:
+            warnings.append(f"{eid}: unknown field {key!r}")
         if e.get("supersedes") and e["supersedes"] not in ids:
             errors.append(f"{eid}: supersedes {e['supersedes']!r} does not exist")
         if e.get("state"):
@@ -121,6 +161,24 @@ def check(path, cfg=None):
                 errors.append(f"{eid}: state is only for start (running/done/failed) or blocked (open/cleared)")
         if kind == "blocked" and not e.get("ask"):
             warnings.append(f"{eid}: blocked without 'ask' — say what the owner must do")
+        if "model" in e and not (isinstance(e["model"], str) and 0 < len(e["model"]) <= 32):
+            errors.append(f"{eid}: model must be text of 32 characters or fewer")
+        if "thread" in e and not valid_id(e["thread"]):
+            errors.append(f"{eid}: thread must be a T3 thread id (letters, digits, _ : % . -; up to 200; no .. or encoded slashes)")
+        if "end" in e:
+            if kind != "start":
+                errors.append(f"{eid}: end is only for start events")
+            try:
+                if when(e["end"]) < when(e.get("time")):
+                    warnings.append(f"{eid}: end is before time")
+            except Exception:
+                errors.append(f"{eid}: end must be ISO 8601 with a UTC offset")
+        if "choices" in e:
+            c = e["choices"]
+            if kind != "blocked":
+                errors.append(f"{eid}: choices are only for blocked events")
+            if not (isinstance(c, list) and 2 <= len(c) <= 6 and all(isinstance(x, str) and 0 < len(x) <= 80 for x in c)):
+                errors.append(f"{eid}: choices must be 2 to 6 strings of 80 characters or fewer")
         for link in e.get("links", []) or []:
             if blocked.search(str(link.get("path", ""))):
                 errors.append(f"{eid}: link {link.get('path')!r} points somewhere the page must not show")
@@ -138,6 +196,59 @@ def check(path, cfg=None):
                 errors.append(f"{eid}: image caption must be text")
         if kind == "sealed" and (e.get("detail") or e.get("numbers") or e.get("links") or e.get("images")):
             errors.append(f"{eid}: a sealed event carries no detail, numbers, links or images")
+
+    starts = sorted(((when(c["start"]), i, c["id"]) for i, c in enumerate(data.get("chapters", []) or [])
+                     if isinstance(c, dict) and c.get("id") and c.get("start") and _ok(c["start"])))
+
+    def chapter_of(eid):
+        e = by_id.get(eid, {})
+        if e.get("chapter"):
+            return e["chapter"]
+        t = times.get(eid)
+        return next((cid for at, _, cid in reversed(starts) if t and at <= t), None)
+
+    for c in data.get("chapters", []) or []:
+        if not isinstance(c, dict):
+            continue
+        cid = c.get("id", "?")
+        for key, limit in (("digest", 700), ("outcome", 200)):
+            if key in c and not (isinstance(c[key], str) and len(c[key]) <= limit):
+                errors.append(f"chapter {cid}: {key} must be text of {limit} characters or fewer")
+        if "end" in c:
+            try:
+                when(c["end"])
+            except Exception:
+                errors.append(f"chapter {cid}: end must be ISO 8601 with a UTC offset")
+        if "keyBeats" in c:
+            kb = c["keyBeats"]
+            if not (isinstance(kb, list) and len(kb) <= 4 and all(isinstance(x, str) for x in kb)):
+                errors.append(f"chapter {cid}: keyBeats must be a list of at most 4 event ids")
+                continue
+            if len(set(kb)) != len(kb):
+                errors.append(f"chapter {cid}: keyBeats has duplicates")
+            for x in dict.fromkeys(kb):
+                if x not in ids:
+                    errors.append(f"chapter {cid}: keyBeats {x!r} does not exist")
+                elif chapter_of(x) != cid:
+                    errors.append(f"chapter {cid}: keyBeats {x} belongs to another chapter")
+
+    run = data.get("run")
+    if run is not None and not isinstance(run, dict):
+        errors.append("run must be an object")
+    run = run if isinstance(run, dict) else {}
+    if "digest" in run and not (isinstance(run["digest"], list) and len(run["digest"]) <= 3 and all(isinstance(x, str) for x in run["digest"])):
+        errors.append("run.digest must be a list of at most 3 strings")
+    if "t3" in run:
+        t = run["t3"]
+        if not (isinstance(t, dict) and all(valid_id(t.get(k)) for k in ("env", "thread"))
+                and ("base" not in t or isinstance(t["base"], str))):
+            errors.append("run.t3 must be {env, thread, base?} with ids of letters, digits, _ : % . - (no .. or encoded slashes)")
+    for lane in data.get("lanes", []) or []:
+        if isinstance(lane, dict):
+            if "thread" in lane and not valid_id(lane["thread"]):
+                errors.append(f"lane {lane.get('id')}: thread must be a T3 thread id")
+            if "model" in lane and not (isinstance(lane["model"], str) and len(lane["model"]) <= 32):
+                errors.append(f"lane {lane.get('id')}: model must be text of 32 characters or fewer")
 
     best = (data.get("headline") or {}).get("best") or {}
     if best.get("eventId") and best["eventId"] not in ids:

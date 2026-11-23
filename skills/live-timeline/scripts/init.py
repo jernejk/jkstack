@@ -2,10 +2,12 @@
 """Scaffold a live timeline into a work folder.
 
   python3 <skill-dir>/scripts/init.py <folder> --title "Audit-risk research night" \
-      --owner Owner --lanes "orch:Orchestrator,opus:Opus lane,sol:Sol lane" [--budget 1500] [--tz UTC]
+      --owner Owner --lanes "orch:Orchestrator,opus:Opus lane,sol:Sol lane" [--budget 1500] [--tz UTC] [--lead-log LEAD-LOG.md]
 
 Creates <folder>/live-timeline.html and <folder>/live/ (events.json, SCHEMA.md, scripts, keeper/config.json).
 Refuses to overwrite an existing timeline unless --force; --upgrade replaces only the page and scripts.
+Inside a T3 thread ($T3CODE_THREAD_ID, or --t3-thread ID) it records run.t3 and watches that thread; --no-t3 turns that off.
+--upgrade never edits the feed: when run.t3 is missing it prints the patch.py command that adds it.
 """
 import argparse
 import json
@@ -13,11 +15,11 @@ import os
 import re
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SKILL = Path(__file__).resolve().parent.parent
-SCRIPTS = ["validate.py", "patch.py", "collect.py", "brief.py", "recent.py", "snap.py"]
+SCRIPTS = ["validate.py", "patch.py", "collect.py", "ingest.py", "digest.py", "brief.py", "recent.py", "snap.py"]
 
 
 def local_tz():
@@ -28,7 +30,28 @@ def local_tz():
         return ""
 
 
+def safe_id(value):
+    return bool(re.fullmatch(r"[A-Za-z0-9_:%.-]{1,200}", value)) and not re.search(r"\.\.|%2[ef]|%5c", value, re.I)
+
+
+def t3_detect(a):
+    """run.t3 for this thread, and the thread id; (None, None) outside T3 or with --no-t3."""
+    thread = None if a.no_t3 else (a.t3_thread or os.environ.get("T3CODE_THREAD_ID") or "").strip()
+    if not thread or not safe_id(thread):
+        return None, None
+    home = Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3").expanduser()
+    try:
+        env = (home / "userdata/environment-id").read_text().strip()
+    except (OSError, UnicodeDecodeError):
+        return None, thread
+    return ({"env": env, "thread": thread} if safe_id(env) else None), thread
+
+
 def now_iso(tz):
+    m = re.fullmatch(r"(?:UTC|GMT)?([+-])(\d\d):?(\d\d)", str(tz or ""))
+    if m:
+        off = timedelta(hours=int(m[2]), minutes=int(m[3])) * (-1 if m[1] == "-" else 1)
+        return datetime.now(timezone(off)).isoformat(timespec="seconds")
     try:
         from zoneinfo import ZoneInfo
         return datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds")
@@ -48,8 +71,14 @@ def main():
     ap.add_argument("--page", default="live-timeline.html")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--upgrade", action="store_true", help="refresh page + scripts + SCHEMA, keep events and config")
+    ap.add_argument("--lead-log", help="lead log path (relative to the work folder): collect.py turns it into a draft patch")
+    ap.add_argument("--t3-thread", help="T3 thread id; default $T3CODE_THREAD_ID")
+    ap.add_argument("--no-t3", action="store_true", help="don't record run.t3 or watch this T3 thread")
     ap.add_argument("--empty", action="store_true", help="no starter chapter or event, for seeding history that predates the scaffold")
     a = ap.parse_args()
+    off = re.fullmatch(r"(?:UTC|GMT)?[+-](\d\d):?(\d\d)", a.tz)
+    if off and not (int(off[1]) < 24 and int(off[2]) < 60):
+        sys.exit(f"--tz {a.tz}: a UTC offset must be under 24:00 with minutes under 60")
 
     root = Path(a.folder).expanduser().resolve()
     live = root / "live"
@@ -63,8 +92,19 @@ def main():
         shutil.copyfile(SKILL / "scripts" / s, live / s)
     shutil.copyfile(SKILL / "references/schema.md", live / "SCHEMA.md")
     shutil.copyfile(SKILL / "references/lead-log.md", live / "LOG-TAGS.md")
+    t3_run, thread = t3_detect(a)
     if a.upgrade and exists:
         print(f"upgraded {page} and {live}/ scripts; events and config untouched")
+        has = True
+        if t3_run:
+            try:
+                feed = json.loads((live / "events.json").read_text())
+                run = feed.get("run") if isinstance(feed, dict) else None
+                has = isinstance(run, dict) and "t3" in run
+            except (OSError, ValueError):
+                pass
+        if t3_run and not has:
+            print("run.t3 is missing; add it with:\n  python3 live/patch.py <<'EOF'\n" + json.dumps({"run": {"t3": t3_run}}) + "\nEOF")
         return
 
     now = now_iso(a.tz)
@@ -80,7 +120,7 @@ def main():
     feed = {
         "schema": 2,
         "updated": now,
-        "run": {"title": a.title, "owner": a.owner, "tz": a.tz, "start": now, "staleAfterMin": 30},
+        "run": {"title": a.title, "owner": a.owner, "tz": a.tz, "start": now, "staleAfterMin": 30, **({"t3": t3_run} if t3_run else {})},
         "headline": {"status": {"tone": "good", "text": "Starting", "note": "Timeline set up", "asOf": now}},
         "lanes": lanes,
         "chapters": [] if a.empty else [{"id": "c1", "title": "Setting out", "start": now, "summary": "What we are trying to do, and how."}],
@@ -102,11 +142,13 @@ def main():
             "maxLinesPerSource": 80,
             "maxChars": 8000,
             "statusStaleMin": 20,
-            "t3": {"root": "", "titles": [], "quietAfterMin": 30},
+            "t3": {"root": thread or "", "titles": [], "quietAfterMin": 30},
             "spend": {"sources": [], "budgetUsd": a.budget, "currency": a.currency, "step": 100, "lane": lanes[1]["id"] if len(lanes) > 1 else owner_id},
             "deny": {"wordsFromDirs": [], "wordsFile": "", "phrases": []},
             "blockedLinks": "",
         }
+        if a.lead_log:
+            cfg["leadLog"] = a.lead_log
         cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
     (live / "README.md").write_text(
         f"# live/\n\nFeed for **`../{a.page}`** — {a.title}.\n\n"
