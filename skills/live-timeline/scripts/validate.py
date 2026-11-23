@@ -110,9 +110,10 @@ def check(path, cfg=None):
     blocked = re.compile(BASE_BLOCKED + ("|" + cfg["blockedLinks"] if cfg.get("blockedLinks") else ""), re.I)
     lanes = {l.get("id") for l in data.get("lanes", []) if isinstance(l, dict)}
     chapters = {c.get("id") for c in data.get("chapters", []) if isinstance(c, dict)}
-    ids, times = set(), {}
+    ids, times, by_id = set(), {}, {}
     for e in data["events"]:
         if isinstance(e, dict) and e.get("id"):
+            by_id.setdefault(e["id"], e)
             with contextlib.suppress(Exception):
                 times[e["id"]] = when(e.get("time"))
             if e["id"] in ids:
@@ -200,7 +201,7 @@ def check(path, cfg=None):
                      if isinstance(c, dict) and c.get("id") and c.get("start") and _ok(c["start"])))
 
     def chapter_of(eid):
-        e = next((x for x in data["events"] if isinstance(x, dict) and x.get("id") == eid), {})
+        e = by_id.get(eid, {})
         if e.get("chapter"):
             return e["chapter"]
         t = times.get(eid)
@@ -231,7 +232,10 @@ def check(path, cfg=None):
                 elif chapter_of(x) != cid:
                     errors.append(f"chapter {cid}: keyBeats {x} belongs to another chapter")
 
-    run = data.get("run") or {}
+    run = data.get("run")
+    if run is not None and not isinstance(run, dict):
+        errors.append("run must be an object")
+    run = run if isinstance(run, dict) else {}
     if "digest" in run and not (isinstance(run["digest"], list) and len(run["digest"]) <= 3 and all(isinstance(x, str) for x in run["digest"])):
         errors.append("run.digest must be a list of at most 3 strings")
     if "t3" in run:

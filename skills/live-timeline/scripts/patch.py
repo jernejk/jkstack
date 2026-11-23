@@ -60,7 +60,7 @@ def next_id(items, prefix, width):
 def chapter_at(chapters, time):
     t = validate.when(time)
     started = [c for c in chapters if c.get("start") and validate.when(c["start"]) <= t]
-    return max(started, key=lambda c: validate.when(c["start"]))["id"] if started else chapters[0]["id"]
+    return max(enumerate(started), key=lambda x: (validate.when(x[1]["start"]), x[0]))[1]["id"] if started else chapters[0]["id"]
 
 
 def ref(value, refs):
@@ -100,6 +100,14 @@ def merge(dst, src):
             dst[k] = v
 
 
+def overlay(dst, src):
+    for k, v in src.items():
+        if isinstance(v, dict) and isinstance(dst.get(k), dict) and k not in ("best", "status", "progress"):
+            overlay(dst[k], v)
+        else:
+            dst[k] = copy.deepcopy(v)
+
+
 def drop_skipped(draft, skipped):
     tags = {"@" + r for r in skipped}
     by_ref = {e["ref"]: e for e in draft.get("events", []) if e.get("ref") in skipped}
@@ -126,9 +134,11 @@ def apply_draft(patch):
     except (OSError, ValueError):
         raise SystemExit("draft: no readable live/keeper/draft.json; run collect.py first")
     draft.pop("meta", None)
-    if batch_of(DRAFT) != batch_of(STAGED):
+    batch = draft.pop("batch", None)
+    if batch != batch_of(STAGED):
         raise SystemExit("draft and cursor are from different passes; run collect.py again")
-    draft.pop("batch", None)
+    if batch and batch == batch_of(FEED):
+        raise SystemExit("draft already applied to the feed; run collect.py to commit the cursor")
     refs = {e["ref"]: e for e in draft.get("events", []) if e.get("ref")}
     skipped = set()
     for ref, fields in (patch.get("fill") or {}).items():
@@ -153,8 +163,8 @@ def apply_draft(patch):
     for k in ("lanes", "headline", "run", "editChapters"):
         out[k] = {}
         for part in (draft.get(k) or {}, rest.get(k) or {}):
-            merge(out[k], part)
-    return out
+            overlay(out[k], part)
+    return out, batch
 
 
 def refresh_spend(data, cfg, now):
@@ -206,8 +216,9 @@ def main():
     raw = sys.stdin.read() if not sys.stdin.isatty() else ""
     patch = json.loads(raw) if raw.strip() else {}
     used_draft = bool(patch.get("draft"))
+    draft_batch = None
     if used_draft:
-        patch = apply_draft(patch)
+        patch, draft_batch = apply_draft(patch)
     elif patch.get("fill"):
         raise SystemExit('fill needs {"draft": true}')
     now = now_iso((data.get("run") or {}).get("tz"))
@@ -299,7 +310,7 @@ def main():
     refresh_spend(data, cfg, now)
     data["updated"] = now
     pending_draft = DRAFT.exists() and not used_draft
-    batch = None if pending_draft else batch_of(STAGED)
+    batch = draft_batch if used_draft else None if pending_draft else batch_of(STAGED)
     if batch:
         data["batch"] = batch
 
@@ -314,6 +325,9 @@ def main():
             print("error:", e)
         print(f"FAIL: nothing installed; draft left at {NEXT}")
         sys.exit(1)
+    if not pending_draft and batch_of(STAGED) != batch:
+        NEXT.unlink()
+        raise SystemExit("cursor changed while this patch was applied; nothing installed, run collect.py again")
     validate.install(NEXT)
     NEXT.unlink()
     committed = STAGED.exists() and not pending_draft

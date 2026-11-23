@@ -586,14 +586,16 @@ function derive() {
   for (const e of ev) for (const c of e.causedBy) { if (!ledTo.has(c)) ledTo.set(c, []); ledTo.get(c).push(e.id); }
   const isRunning = e => e.kind === 'start' && e.state === 'running';
   const isBlocked = e => e.kind === 'blocked' && e.state !== 'cleared';
-  const isOpen = e => isRunning(e) || isBlocked(e);
+  const live = e => isRunning(e) && !data.run.done;
+  const isOpen = e => live(e) || isBlocked(e);
   const blockers = visible.filter(isBlocked);
   const openLanes = new Set(visible.filter(isOpen).map(e => e.lane)), lastAt = {};
   for (const e of visible) lastAt[e.lane] = e.t;
   const recent = Date.now() - data.run.staleAfterMin * 60e3;
   const active = data.run.done ? [] : data.lanes.filter(l => !l.human && !/^(done|paused|idle|failed)$/.test(l.status)
     && (openLanes.has(l.id) || (lastAt[l.id] || 0) > recent));
-  const spanEnd = e => isRunning(e) ? Date.now() : !Number.isNaN(e.end) ? Math.max(e.t, e.end) : e.t;
+  const runEnd = data.run.done ? (data.run.end || (ev.length ? Math.max(...ev.map(e => e.t)) : Date.now())) : Date.now();
+  const spanEnd = e => isRunning(e) ? Math.max(e.t, runEnd) : !Number.isNaN(e.end) ? Math.max(e.t, e.end) : e.t;
   const lanes = new Map(data.lanes.map(l => [l.id, { lane: l, starts: 0, iv: [], model: l.model, thread: l.thread, since: null, last: 0, beats: 0 }]));
   const models = new Map();
   for (const e of visible) {
@@ -603,17 +605,17 @@ function derive() {
     const model = e.model || (e.kind === 'start' ? data.laneMap[e.lane]?.model : '');
     if (e.model) li.model = e.model;
     if (e.thread) li.thread = e.thread;
-    if (e.kind === 'start') { li.starts++; li.iv.push([e.t, spanEnd(e)]); if (isRunning(e) && li.since == null) li.since = e.t; }
+    if (e.kind === 'start') { li.starts++; li.iv.push([e.t, spanEnd(e)]); if (live(e) && li.since == null) li.since = e.t; }
     if (!model) continue;
     const key = model.toLowerCase();
     if (!models.has(key)) models.set(key, { name: modelName(model), starts: [], lanes: new Set(), iv: [], live: false, beats: 0 });
     const m = models.get(key);
     m.beats++; m.lanes.add(e.lane);
-    if (e.kind === 'start') { m.starts.push(e); m.iv.push([e.t, spanEnd(e)]); if (isRunning(e)) m.live = true; }
+    if (e.kind === 'start') { m.starts.push(e); m.iv.push([e.t, spanEnd(e)]); if (live(e)) m.live = true; }
   }
   const union = iv => { let total = 0, end = -Infinity; for (const [a, b] of iv.sort((x, y) => x[0] - y[0])) { if (b > end) { total += b - Math.max(a, end); end = b; } } return total; };
   for (const x of [...lanes.values(), ...models.values()]) x.busy = union(x.iv);
-  return { visible, superseded, ledTo, isOpen, isRunning, isBlocked, blockers, active, spanEnd, lanes, models };
+  return { visible, superseded, ledTo, isOpen, isRunning: live, isBlocked, blockers, active, spanEnd, lanes, models };
 }
 const modelName = m => /^[a-z]+$/.test(m) ? m[0].toUpperCase() + m.slice(1) : m;
 const dur = ms => { const m = Math.round(ms / 60e3); return m < 60 ? m + ' min' : m < 600 ? (m / 60).toFixed(1).replace(/\.0$/, '') + ' h' : Math.round(m / 60) + ' h'; };

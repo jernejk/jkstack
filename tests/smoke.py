@@ -420,7 +420,7 @@ Snapshots: see header. Ignore this prose.
         brief = run(sys.executable, work / "live/brief.py", "--since", "all", env=self.env).stdout
         self.assertIn("The loop gets built in one night.", brief)
         self.patch(work, {"events": [{"lane": "main", "kind": "start", "importance": 2, "state": "running", "model": "opus-5",
-                                      "title": "Opus is working", "summary": "Now."}]})
+                                      "title": "Opus is working", "summary": "Now."}], "run": {"done": None}})
         recent = run(sys.executable, work / "live/recent.py", env=self.env).stdout
         self.assertIn("Opus is working (opus-5)", recent)
         self.assertIn("ACTIVE main", recent)
@@ -461,10 +461,11 @@ Snapshots: see header. Ignore this prose.
 
     def test_ingest_dry_run_writes_nothing_and_handles_rollover_state(self):
         work = self.synthetic()
-        before = sorted(p.name for p in (work / "live").rglob("*"))
+        snapshot = lambda: {str(p.relative_to(work)): p.read_bytes() for p in (work / "live").rglob("*") if p.is_file()}
+        before = snapshot()
         out = run(sys.executable, work / "live/ingest.py", "--dry-run", "--all", env=self.env).stdout
         self.assertIn("10 events", out)
-        self.assertEqual(sorted(p.name for p in (work / "live").rglob("*")), before)
+        self.assertEqual(snapshot(), before)
         self.collect(work)
         with (work / "LEAD-LOG.md").open("a") as f:
             f.write("- 00:50 (main) [result] Later the same night.\n- 17:40 (main) [result] The next evening.\n- 00:05 (main) [result] The day after.\n")
@@ -540,13 +541,11 @@ Snapshots: see header. Ignore this prose.
         self.assertTrue((work / "live/keeper/draft.json").exists())
 
     def test_crash_between_draft_and_cursor_staging_cannot_apply_the_stale_pair(self):
-        work = self.lead_work("- 10:00 (main) [result] Old draft.\n")
-        run(sys.executable, work / "live/collect.py", env=self.env)
-        with (work / "LEAD-LOG.md").open("a") as f:
-            f.write("- 10:01 (main) [result] Unstaged beat.\n")
+        work = self.lead_work("- 10:00 (main) [result] Old draft.\n- 10:01 (main) [result] Unstaged beat.\n")
         self.crash(work, "import os\nimport collect\nwrite = collect.write_state\n"
                          "def crash(state, target):\n    if target == collect.STAGED: os._exit(77)\n    write(state, target)\n"
                          "collect.write_state = crash\ncollect.main()\n")
+        self.assertTrue((work / "live/keeper/draft.json").exists())
         self.assertNotEqual(self.patch(work, {"draft": True}, ok=False).returncode, 0)
         self.assertEqual(self.feed(work)["events"], [])
         run(sys.executable, work / "live/collect.py", env=self.env)
@@ -654,8 +653,156 @@ Snapshots: see header. Ignore this prose.
         out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
         self.assertIn("refused image shots/innocent.png", out)
         images = self.draft(work)["events"][0]["images"]
-        self.assertEqual([i["full"] for i in images], ["shots/fine.png"])
-        self.assertEqual([p.name for p in (work / "live/thumbs").glob("*")], ["1000-fine.jpg"])
+        self.assertEqual([i.get("full", i["path"]) for i in images], ["shots/fine.png"])
+        thumbs = [p.name for p in (work / "live/thumbs").glob("*")]
+        self.assertLessEqual(len(thumbs), 1)
+        self.assertTrue(all(re.fullmatch(r"1000-fine-[0-9a-f]{6}\.jpg", n) for n in thumbs), thumbs)
+
+    def set_config(self, work, **cfg_extra):
+        config = work / "live/keeper/config.json"
+        config.write_text(json.dumps({**json.loads(config.read_text()), **cfg_extra}))
+
+    def test_raw_sources_follow_the_lead_log_privacy_checks(self):
+        work = self.init()
+        (work / "private").mkdir()
+        (work / "private/STATUS.md").write_text("Private marker.\n")
+        (work / "open").symlink_to(work / "private")
+        self.set_config(work, sources=["*/STATUS.md"], leadLog="open/STATUS.md")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertNotIn("Private marker", out)
+        self.set_config(work, sources=["*/STATUS.md"], leadLog="")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertNotIn("Private marker", out)
+        (work / "open").unlink()
+        (work / "shared").mkdir()
+        (work / "shared/STATUS.md").write_text("Shared marker.\n")
+        self.set_config(work, sources=["*/STATUS.md"], leadLog="shared/STATUS.md", exclude=["/shared/"])
+        self.assertNotIn("Shared marker", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+
+    def test_keeper_brief_sends_the_draft_only_when_collect_staged_one(self):
+        brief = (ROOT / "skills/live-timeline/references/keeper-brief.md").read_text()
+        self.assertRegex(brief, r"(?i)only when collect\.py printed a `DRAFT from")
+        work = self.init()
+        (work / "STATUS.md").write_text("Changed report.\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn("Changed report", out)
+        self.assertNotIn("DRAFT from", out)
+        failed = self.patch(work, {"draft": True}, ok=False)
+        self.assertIn("no readable live/keeper/draft.json", failed.stderr)
+        lead = self.lead_work("- 10:00 (main) [result] Staged.\n", name="lead")
+        self.assertIn("DRAFT from LEAD-LOG.md", run(sys.executable, lead / "live/collect.py", env=self.env).stdout)
+
+    def test_bounded_briefs_keep_events_and_only_all_uses_digests(self):
+        work = self.init()
+        data = self.feed(work)
+        e = {"lane": "main", "kind": "success", "importance": 2}
+        now = datetime.now().astimezone()
+        before = (now - timedelta(days=2)).isoformat(timespec="seconds")
+        data["chapters"] = [{"id": "c1", "title": "Build", "start": before, "digest": "DIGEST of the whole chapter.", "keyBeats": ["e001"]}]
+        data["events"] = [dict(e, id="e001", chapter="c1", time=before, title="Earlier work", summary="Yesterday."),
+                          dict(e, id="e002", chapter="c1", time=now.isoformat(timespec="seconds"), title="Today detail", summary="Detail today.")]
+        (work / "live/events.json").write_text(json.dumps(data))
+        today = run(sys.executable, work / "live/brief.py", "--since", "today", env=self.env).stdout
+        self.assertIn("Today detail", today)
+        self.assertNotIn("DIGEST of the whole chapter", today)
+        self.assertNotIn("Earlier work", today)
+        every = run(sys.executable, work / "live/brief.py", "--since", "all", env=self.env).stdout
+        self.assertIn("DIGEST of the whole chapter", every)
+
+    def test_thumbnails_of_same_named_images_do_not_collide(self):
+        work = self.lead_work("- 10:00 (main) [result] Two. [img: build/screen.png | A] [img: qa/screen.png | B]\n"
+                              "- 10:00 (main) [date: 2026-11-21] [result] Next day. [img: build/screen.png | C]\n")
+        self.png(work / "build/screen.png")
+        self.png(work / "qa/screen.png")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        images = [i for e in self.draft(work)["events"] for i in e["images"]]
+        self.assertEqual(len(images), 3)
+        thumbs = [i["path"] for i in images if i["path"].startswith("live/thumbs/")]
+        self.assertEqual(len(set(thumbs)), len(thumbs), thumbs)
+        self.assertTrue(all((work / i["path"]).is_file() for i in images), images)
+
+    def test_closure_tags_skip_superseded_events(self):
+        work = self.lead_work("- 10:30 (sol) [result] [done: Fix parser] [cleared] Closed.\n")
+        data = self.feed(work)
+        e = {"lane": "sol", "importance": 2, "summary": "x"}
+        data["events"] = [dict(e, id="e001", kind="start", state="running", time="2026-11-20T09:00:00+10:00", title="Fix parser"),
+                          dict(e, id="e002", kind="start", state="running", time="2026-11-20T08:00:00+10:00", title="Fix parser", supersedes="e001"),
+                          dict(e, id="e003", kind="blocked", state="open", time="2026-11-20T09:10:00+10:00", title="Wait"),
+                          dict(e, id="e004", kind="blocked", state="open", time="2026-11-20T08:10:00+10:00", title="Wait", supersedes="e003")]
+        (work / "live/events.json").write_text(json.dumps(data))
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        edit = self.draft(work)["edit"]
+        self.assertEqual(edit["e002"]["state"], "done")
+        self.assertEqual(edit["e004"], {"state": "cleared"})
+        self.assertNotIn("e001", edit)
+        self.assertNotIn("e003", edit)
+
+    def t3_profile(self):
+        import sqlite3
+        home = self.base / "t3profile"
+        (home / "userdata").mkdir(parents=True)
+        con = sqlite3.connect(home / "userdata/state.sqlite")
+        con.execute("CREATE TABLE orchestration_v2_projection_threads (thread_id, title, updated_at, payload_json, deleted_at, archived_at)")
+        con.execute("CREATE TABLE orchestration_v2_projection_runtime_requests (thread_id, kind, created_at, status)")
+        con.execute("INSERT INTO orchestration_v2_projection_threads VALUES ('th_p', 'Profile lane', ?, '{}', NULL, NULL)",
+                    (datetime.now().astimezone().isoformat(),))
+        con.commit()
+        con.close()
+        return home
+
+    def test_collect_reads_the_t3_database_of_the_t3code_home_profile(self):
+        home = self.t3_profile()
+        work = self.init()
+        self.set_config(work, t3={"root": "th_p"})
+        env = dict(self.env, T3CODE_HOME=str(home))
+        out = run(sys.executable, work / "live/collect.py", env=env).stdout
+        self.assertIn("T3 THREADS 1 watched", out)
+        self.assertNotIn("unavailable", out)
+
+    def test_an_unreadable_t3_database_keeps_the_previous_observations(self):
+        home = self.t3_profile()
+        work = self.init()
+        self.set_config(work, t3={"root": "th_p"})
+        env = dict(self.env, T3CODE_HOME=str(home))
+        state = work / "live/keeper/state.json"
+        run(sys.executable, work / "live/collect.py", env=env)
+        self.patch(work, {})
+        self.assertIn("th_p", json.loads(state.read_text())["threads"])
+        (home / "userdata/state.sqlite").unlink()
+        out = run(sys.executable, work / "live/collect.py", env=env).stdout
+        self.patch(work, {})
+        self.assertIn("unavailable", out)
+        self.assertIn("th_p", json.loads(state.read_text())["threads"])
+
+    def test_chapterless_events_join_the_last_appended_chapter_on_equal_starts(self):
+        work = self.init()
+        start = self.feed(work)["chapters"][0]["start"]
+        self.patch(work, {"chapters": [{"title": "Second", "start": start}],
+                          "events": [{"lane": "main", "kind": "update", "importance": 2, "title": "Later", "summary": "Later.",
+                                      "time": (datetime.fromisoformat(start) + timedelta(minutes=5)).isoformat()}]})
+        data = self.feed(work)
+        self.assertEqual([c["id"] for c in data["chapters"]], ["c1", "c2"])
+        self.assertEqual(data["events"][-1]["chapter"], "c2")
+
+    def test_a_replayed_draft_after_install_is_refused_until_collect_commits(self):
+        work = self.lead_work("- 10:00 (main) [result] Once only.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.crash(work, "import os\nimport patch\ninstall = patch.validate.install\n"
+                         "def crash(path):\n    install(path)\n    os._exit(77)\npatch.validate.install = crash\npatch.main()\n",
+                   json.dumps({"draft": True}))
+        again = self.patch(work, {"draft": True}, ok=False)
+        self.assertNotEqual(again.returncode, 0)
+        self.assertIn("run collect.py", again.stderr)
+        self.assertEqual(len(self.feed(work)["events"]), 1)
+
+    def test_draft_and_patch_nulls_delete_headline_fields(self):
+        work = self.lead_work("- 10:00 (main) [result] Beat.\n")
+        self.patch(work, {"headline": {"best": {"text": "Old best"}, "progress": {"value": 1, "of": 2}}})
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        self.patch(work, {"draft": True, "headline": {"best": None}})
+        head = self.feed(work)["headline"]
+        self.assertNotIn("best", head)
+        self.assertIn("progress", head)
 
     def test_refs_resolve_only_where_ids_belong_and_duplicates_are_refused(self):
         work = self.init()
@@ -721,7 +868,8 @@ Snapshots: see header. Ignore this prose.
         (self.home / ".t3/userdata/environment-id").write_text("env-1")
         for thread, expect in (("th_ok", True), ("a..b", False), ("x%2Fy", False)):
             target = self.base / f"t3-{thread[:4]}"
-            run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", target, "--owner", "Owner", "--lanes", "main:Main", "--t3-thread", thread, env=self.env)
+            run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", target, "--owner", "Owner", "--lanes", "main:Main", "--t3-thread", thread,
+                env=dict(self.env, T3CODE_HOME=str(self.home / ".t3")))
             self.assertEqual("t3" in json.loads((target / "live/events.json").read_text())["run"], expect, thread)
 
     def test_digest_skips_superseded_events_and_places_chapterless_ones_by_time(self):
@@ -736,6 +884,131 @@ Snapshots: see header. Ignore this prose.
         self.assertIn("Correct count", out)
         self.assertNotIn("Wrong count", out)
         self.assertIn("c1 Chapter · ", out)
+
+    def test_first_pass_cut_keeps_a_beat_with_its_continuation(self):
+        work = self.lead_work("- 10:00 (main) [result] One.\n- 10:05 (main) [result] Two.\n    [metric: Rows = 5]\n")
+        self.set_config(work, firstPassTail=1)
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertNotIn("UNPARSED", out)
+        draft = self.draft(work)
+        self.assertEqual([e["summary"] for e in draft["events"]], ["Two."])
+        self.assertEqual([m["name"] for m in draft["metrics"]], ["Rows"])
+
+    def test_a_pending_draft_blocks_a_new_pass_and_its_beats_are_not_lost(self):
+        work = self.lead_work("- 10:00 (main) [result] Keep me.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        with (work / "LEAD-LOG.md").open("a") as f:
+            f.write("stray note\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertIn('PENDING draft ', out)
+        self.assertIn("Keep me", out)
+        self.assertEqual([e["summary"] for e in self.draft(work)["events"]], ["Keep me."])
+        self.assertTrue(self.last_json(self.patch(work, {"draft": True}))["committed"])
+        self.assertEqual([e["summary"] for e in self.feed(work)["events"]], ["Keep me."])
+        again = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertNotIn("PENDING", again)
+        self.assertIn("UNPARSED (handle by hand):\n  stray note", again)
+
+    def test_done_and_review_ignore_starts_after_the_closing_beat(self):
+        work = self.lead_work("- 10:30 (sol) [start] Fix parser.\n- 10:05 (sol) [review] Early review.\n"
+                              "- 10:20 (sol) [result] [done: Fix parser] Closed too early.\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertEqual(self.draft(work).get("edit", {}), {})
+        self.assertIn("UNMATCHED done: Fix parser", out)
+
+    def test_patch_refuses_when_the_cursor_changes_while_it_applies(self):
+        work = self.lead_work("- 10:00 (main) [result] Once.\n")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        out = self.crash(work, "import json\nimport patch\ncheck = patch.validate.check\n"
+                               "def hooked(*a, **k):\n    r = check(*a, **k)\n    patch.STAGED.write_text(json.dumps({'batch': 'newer-pass'}))\n    return r\n"
+                               "patch.validate.check = hooked\npatch.main()\n", json.dumps({"draft": True}))
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("cursor changed", out.stderr)
+        self.assertEqual(self.feed(work)["events"], [])
+        self.assertFalse((work / "live/keeper/state.json").exists())
+
+    def test_stale_status_reminder_survives_a_quiet_collection_but_not_a_wait(self):
+        work = self.init()
+        (work / "STATUS.md").write_text("Report.\n")
+        old = time.time() - 7200
+        os.utime(work / "STATUS.md", (old, old))
+        self.collect(work)
+        data = self.feed(work)
+        data["headline"]["status"]["asOf"] = (datetime.now().astimezone() - timedelta(hours=1)).isoformat(timespec="seconds")
+        (work / "live/events.json").write_text(json.dumps(data))
+        self.assertIn("STATUS set", run(sys.executable, work / "live/collect.py", env=self.env).stdout)
+        self.assertIn("QUIET", run(sys.executable, work / "live/collect.py", "--wait", "1s", env=self.env).stdout)
+
+    def test_a_source_that_vanishes_after_enumeration_is_skipped(self):
+        work = self.init()
+        result = self.crash(work, "import collect\ngone = [('GONE.md', collect.ROOT / 'GONE.md')]\ncollect.sources = lambda cfg: gone\n"
+                                  "collect.something_new(collect.load_config(), {})\ncollect.collect()\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_stray_line_ends_the_continuation_group_and_backtick_runs_pair_up(self):
+        work = self.lead_work("- 10:00 (main) [result] Beat.\nstray text\n    [metric: Late = 5]\n")
+        out = run(sys.executable, work / "live/collect.py", env=self.env).stdout
+        self.assertNotIn("metrics", self.draft(work))
+        self.assertIn("UNPARSED (handle by hand):\n  stray text\n      [metric: Late = 5]", out)
+        work = self.lead_work("- 10:00 (main) Wrote `` ` `` quote then [fail] `x` done.\n- 10:01 (main) [result] Keep ``a ` [fail] b`` literal.\n", name="work2")
+        run(sys.executable, work / "live/collect.py", env=self.env)
+        ev = self.draft(work)["events"]
+        self.assertEqual([e["kind"] for e in ev], ["fail", "success"])
+        self.assertIn("``a ` [fail] b``", ev[1]["summary"])
+
+    def test_init_survives_a_bad_environment_id_a_bad_offset_and_odd_feeds(self):
+        t3home = self.base / "t3x"
+        (t3home / "userdata").mkdir(parents=True)
+        (t3home / "userdata/environment-id").write_bytes(b"\xff\xfe")
+        env = dict(self.env, T3CODE_THREAD_ID="th_1", T3CODE_HOME=str(t3home))
+        work = self.init(env=env)
+        self.assertNotIn("t3", self.feed(work)["run"])
+        self.assertEqual(json.loads((work / "live/keeper/config.json").read_text())["t3"]["root"], "th_1")
+        bad = self.base / "badtz"
+        result = run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", bad, "--tz", "UTC+24:00", env=env, ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse((bad / "live").exists())
+        (t3home / "userdata/environment-id").write_text("env-1")
+        for text in ("[]", '{"run": 5}'):
+            (work / "live/events.json").write_text(text)
+            run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", work, "--upgrade", env=env)
+        (work / "live/events.json").write_text('{"run": {}}')
+        self.assertIn('"t3"', run(sys.executable, ROOT / "skills/live-timeline/scripts/init.py", work, "--upgrade", env=env).stdout)
+
+    def test_recent_ignores_superseded_starts_finished_lanes_and_finished_runs(self):
+        work = self.init("main:Main lane,sol:Sol lane,qa:QA lane")
+        data = self.feed(work)
+        now, old = datetime.now().astimezone(), datetime.now().astimezone() - timedelta(hours=3)
+        e = lambda i, lane, at, **extra: {"id": f"e{i:03d}", "lane": lane, "kind": "update", "importance": 2, "title": f"T{i}", "summary": "x",
+                                          "time": at.isoformat(timespec="seconds"), **extra}
+        data["events"] = [e(1, "qa", old, kind="start", state="running"), e(2, "qa", old, supersedes="e001"), e(3, "sol", now), e(4, "main", now)]
+        for lane in data["lanes"]:
+            lane["status"] = "done" if lane["id"] == "sol" else "running"
+        (work / "live/events.json").write_text(json.dumps(data))
+        out = run(sys.executable, work / "live/recent.py", env=self.env).stdout
+        self.assertRegex(out, r"(?m)^ACTIVE main \(")
+        data["run"]["done"] = True
+        (work / "live/events.json").write_text(json.dumps(data))
+        self.assertRegex(run(sys.executable, work / "live/recent.py", env=self.env).stdout, r"(?m)^ACTIVE none \(")
+
+    def test_a_non_object_run_is_a_validation_error(self):
+        work = self.init()
+        result = self.feed_with(work, lambda d: d.update(run=5))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run must be an object", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_digest_output_stays_bounded_after_the_last_trial(self):
+        work = self.init()
+        data = self.feed(work)
+        data["chapters"] = [{"id": "c1", "title": "Big", "start": "2026-11-20T10:00:00+00:00"}]
+        data["events"] = [{"id": f"e{i:03d}", "time": f"2026-11-20T10:{i % 60:02d}:00+00:00", "lane": "main", "kind": "success", "importance": 2,
+                           "chapter": "c1", "title": f"Beat number {i}", "summary": "s"} for i in range(1, 301)]
+        (work / "live/events.json").write_text(json.dumps(data))
+        out = run(sys.executable, work / "live/digest.py", env=self.env).stdout
+        self.assertLess(len(out.split("\n\nNEXT")[0]), 6200)
+        self.assertIn("more lines omitted", out)
 
     def test_blueprint_links_and_brand_profiles(self):
         for skill in sorted((ROOT / "blueprints").iterdir()):

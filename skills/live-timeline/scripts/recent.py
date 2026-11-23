@@ -13,7 +13,8 @@ from pathlib import Path
 
 data = json.loads((Path(__file__).resolve().parent / "events.json").read_text())
 n = int(sys.argv[1]) if len(sys.argv) > 1 else 12
-events = data.get("events", [])
+replaced = {e.get("supersedes") for e in data.get("events", [])}
+events = [e for e in data.get("events", []) if e["id"] not in replaced]
 print("CHAPTERS " + " · ".join(f"{c['id']} {c['title']}" for c in data.get("chapters", [])))
 for e in events[-n:]:
     print(f"{e['id']} {e.get('time', '')[11:16]} {e['lane']} {e['kind']}{' ' + e['state'] if e.get('state') else ''} · {e['title']}")
@@ -34,7 +35,8 @@ for e in events:
     except (KeyError, ValueError):
         pass
 lanes = [l for l in data.get("lanes", []) if not l.get("human")]
-active = [l["id"] for l in lanes if l["id"] in busy | recent]
+over = (data.get("run") or {}).get("done")
+active = [] if over else [l["id"] for l in lanes if l.get("status") not in ("done", "failed", "paused", "idle") and l["id"] in busy | recent]
 print("ACTIVE " + (" ".join(active) or "none") + f" (an open start or blocker, or an event in the last {limit} min)")
 idle = [l["id"] for l in lanes if l.get("status") == "running" and l["id"] not in active]
 if idle:

@@ -13,7 +13,7 @@ The orchestrator writes it. Lanes can append their own lines too.
 - HH:MM (lane/model) [start] The same, naming the model that does the work.
 ```
 
-- `HH:MM`: when it happened, in the run's timezone. Append; never rewrite a line. A time more than 6 h earlier than the line before means the next day, and one more than 18 h later is a late line from the day before; `[date: YYYY-MM-DD]` sets the day outright.
+- `HH:MM`: when it happened, in the run's timezone. Append; never rewrite a line. Each time is compared with the last beat that wasn't late, not just the line above: more than 6 h earlier means the next day, and more than 18 h later is a late line from the day before (it doesn't become the new reference); `[date: YYYY-MM-DD]` sets the day outright.
 - `(lane)`: a lane id from the feed (an unknown id becomes a new lane). `(lane/model)` also records the model: write it on every `[start]`, so the page can show which models ran, where and for how long.
 - `[tag]`: any number of them, anywhere on the line. Text in `` `code` `` is never a tag; an argument may hold one level of `[…]`.
 - Indented lines under a beat belong to it: append a beat and its indented lines in one write. Anything else that isn't a beat is shown to the keeper as `UNPARSED`, and so is a bad time or date. End every line with a newline; an unfinished last line waits for the next pass.
@@ -73,5 +73,5 @@ Snapshots: python3 live/snap.py --name HHMM-<target> --before <old URL> --after 
 
 - The facts, times and numbers come from the one agent that knows them, so the keeper can't invent them.
 - Tags make each beat's kind explicit, which leaves the keeper only to reformat.
-- One file and one cursor: `collect.py` shows only the new lines as a draft, so each cycle costs a few hundred tokens of input, and `collect.py --wait` returns only when something changed.
+- One file and one cursor: `collect.py` shows only the new lines as a draft, so each cycle costs a few hundred tokens of input, and `collect.py --wait` returns when something changed, or ends `QUIET` with nothing collected: then send `{}` as the heartbeat.
 - Status gets its own trigger: write `[status: …]` when the headline should change, and `collect.py` flags a status older than 20 minutes.

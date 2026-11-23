@@ -91,7 +91,36 @@ def main():
                     context.close()
             busy_feed(browser, html, json.loads((work / "live/events.json").read_text()))
             story_and_lanes(browser, html, json.loads((work / "live/events.json").read_text()))
+            finished_with_open_start(browser, html, json.loads((work / "live/events.json").read_text()))
             browser.close()
+
+
+def finished_with_open_start(browser, html, feed):
+    """A finished run whose log never closed a start: nothing reads as running and busy time stops at the run's end."""
+    start = datetime.now(timezone.utc) - timedelta(hours=30)
+    stamp = lambda t: t.isoformat(timespec="seconds")
+    feed["run"].update(start=stamp(start), done=True)
+    feed["lanes"] = [{"id": "build", "name": "Build", "short": "Build", "status": "done", "model": "opus"}]
+    feed["chapters"][0].update(start=stamp(start))
+    feed["events"] = [
+        {"id": "e1", "time": stamp(start), "lane": "build", "kind": "start", "importance": 2, "chapter": "c1", "state": "running",
+         "title": "Build starts", "summary": "Never closed."},
+        {"id": "e2", "time": stamp(start + timedelta(hours=2)), "lane": "build", "kind": "success", "importance": 2, "chapter": "c1",
+         "title": "Build ships", "summary": "Last beat."}]
+    feed["metrics"] = []
+    context = browser.new_context(viewport={"width": 1280, "height": 900})
+    page = context.new_page()
+    page.add_init_script("localStorage.setItem('live-timeline:/:view', 'full')")
+    page.route("**/*", lambda route: route.fulfill(body=html, content_type="text/html") if urlsplit(route.request.url).path == "/"
+               else route.fulfill(body=json.dumps(feed), content_type="application/json"))
+    page.goto("https://timeline.test/")
+    page.locator(".l-row").first.wait_for()
+    row = page.locator(".l-row").first.inner_text()
+    assert "running" not in row and "2 h" in row, row
+    assert page.locator(".mo .dot.on").count() == 0, "a finished run has no live model"
+    assert page.locator(".pill.run").count() == 0 and page.locator(".rib-run").count() == 0
+    print("PASS finished run with an unclosed start: not running, busy time capped at the last beat")
+    context.close()
 
 
 def busy_feed(browser, html, feed):

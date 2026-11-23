@@ -8,7 +8,9 @@
 
 The cursor is staged: a pass writes keeper/draft.json then keeper/state.next.json, both stamped with one batch id, and patch.py
 commits the cursor once the patch installs (a draft stays pending until a patch sends {"draft": true}), so running this
-twice without a patch shows the same lines again. --mark and --reset write keeper/state.json directly.
+twice without a patch shows the same lines again.
+While that draft is pending a new pass refuses to stage (`PENDING draft …`), so no beat is skipped.
+--mark and --reset write keeper/state.json directly.
 Config "leadLog": "LEAD-LOG.md" hands that file to ingest.py: its new lines come back as a compact draft (keeper/draft.json)
 for patch.py {"draft": true, "fill": {...}} instead of raw text, and it is left out of the raw sources.
 --wait counts a changed source, a staged draft, a stale status, or (when "t3" is configured) a thread that updated or a new
@@ -41,7 +43,6 @@ STATE = HERE / "keeper" / "state.json"
 STAGED = HERE / "keeper" / "state.next.json"
 DRAFT = HERE / "keeper" / "draft.json"
 CONFIG = HERE / "keeper" / "config.json"
-T3_DBS = [Path.home() / ".t3/userdata/statev2.sqlite", Path.home() / ".t3/userdata/state.sqlite"]
 
 
 def load_config():
@@ -68,13 +69,22 @@ def lead_problem(path, key, cfg):
     return ""
 
 
-def lead_log(cfg, say=False):
+def t3_dbs():
+    home = Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3").expanduser()
+    return [home / "userdata/statev2.sqlite", home / "userdata/state.sqlite"]
+
+
+def lead_path(cfg):
     spec = cfg.get("leadLog")
     if not spec:
         return None
     p = Path(spec).expanduser()
-    path = p if p.is_absolute() else ROOT / spec
-    if not path.is_file():
+    return p if p.is_absolute() else ROOT / spec
+
+
+def lead_log(cfg, say=False):
+    path = lead_path(cfg)
+    if not path or not path.is_file():
         return None
     key = str(path.relative_to(ROOT)) if ROOT in path.parents else str(path).replace(str(Path.home()), "~")
     why = lead_problem(path, key, cfg)
@@ -98,8 +108,7 @@ def new_lines(lines, prev):
 
 
 def sources(cfg):
-    excl = [x.lower() for x in cfg.get("exclude", [])] + ["/private/"]
-    lead = lead_log(cfg)
+    lead = lead_path(cfg)
     found = []
     for pattern in cfg.get("sources", []):
         p = Path(pattern).expanduser()
@@ -107,8 +116,8 @@ def sources(cfg):
         for hit in sorted(glob.glob(str(base), recursive=True)):
             path = Path(hit)
             key = str(path.relative_to(ROOT)) if ROOT in path.parents else str(path).replace(str(Path.home()), "~")
-            if path.is_file() and not path.is_symlink() and not any(x in "/" + key.lower() for x in excl) and HERE not in path.parents \
-                    and not (lead and path.resolve() == lead[1].resolve()):
+            if path.is_file() and not lead_problem(path, key, cfg) and HERE not in path.parents \
+                    and not (lead and path.resolve() == lead.resolve()):
                 found.append((key, path))
     return found
 
@@ -140,7 +149,7 @@ def t3_rows(cfg):
     spec = cfg.get("t3") or {}
     if not (spec.get("root") or spec.get("titles")):
         return {}, []
-    for db in ([Path(spec["db"]).expanduser()] if spec.get("db") else T3_DBS):
+    for db in ([Path(spec["db"]).expanduser()] if spec.get("db") else t3_dbs()):
         if not db.exists():
             continue
         try:
@@ -179,7 +188,7 @@ def t3(cfg, old):
     found = t3_rows(cfg)
     if found is None:
         print("\nT3 THREADS unavailable (no readable state db)")
-        return {}, []
+        return None
     mine, pending = found
     now = datetime.now(timezone.utc)
     quiet_min = spec.get("quietAfterMin", 30)
@@ -203,7 +212,7 @@ def t3(cfg, old):
     return {tid: u for tid, (_, u) in mine.items()}, [f"{t}|{c}" for t, _, c in pending]
 
 
-def stale_status(cfg, newest):
+def stale_status(cfg, newest=None):
     try:
         data = json.loads((HERE / "events.json").read_text())
     except (OSError, ValueError):
@@ -239,10 +248,13 @@ def said(seconds):
 def something_new(cfg, committed):
     if DRAFT.exists():
         return True
-    files = [lead_log(cfg)] if lead_log(cfg) else []
+    lead = lead_log(cfg)
     newest = None
-    for key, path in files + sources(cfg):
-        st = path.stat()
+    for key, path in ([lead] if lead else []) + sources(cfg):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
         newest = max(newest or 0, st.st_mtime)
         prev = committed.get("files", {}).get(key, {})
         if prev.get("mtime_ns") != st.st_mtime_ns or prev.get("size") != st.st_size:
@@ -317,26 +329,39 @@ def collect(commit=False):
     if old.get("ingest"):
         state["ingest"] = old["ingest"]
     print("COLLECTED", state["collected"], "· previous", old.get("collected", "never"))
-    todo, held = [], []
-    newest = None
     lead = lead_log(cfg, say=True)
+    pending = batch_of(DRAFT)
+    if not commit and pending and pending == batch_of(STAGED):
+        print(f'PENDING draft {pending}: send {{"draft": true, …}} first; this pass stages nothing new.')
+        held_draft = json.loads(DRAFT.read_text())
+        meta = held_draft.get("meta") or {}
+        print(ingest.render(lead[0] if lead else "draft", held_draft, meta.get("unparsed", []), meta.get("notes", [])))
+        return
+    todo, held = [], []
     draft_status = False
     draft_out = None
     for key, path in ([(lead[0], lead[1])] if lead else []) + sources(cfg):
         is_lead = bool(lead) and path == lead[1]
-        st = path.stat()
-        newest = max(newest or 0, st.st_mtime)
         prev = old.get("files", {}).get(key, {})
-        if prev.get("mtime_ns") == st.st_mtime_ns and prev.get("size") == st.st_size:
-            state["files"][key] = prev
+        try:
+            st = path.stat()
+            if prev.get("mtime_ns") == st.st_mtime_ns and prev.get("size") == st.st_size:
+                state["files"][key] = prev
+                continue
+            text = path.read_text(errors="replace")
+        except OSError:
+            if prev:
+                state["files"][key] = prev
             continue
-        text = path.read_text(errors="replace")
         lines = ingest.complete_lines(text) if is_lead else text.splitlines()
         hashes = [hashlib.sha1(l.encode()).hexdigest()[:16] for l in lines]
         new = new_lines(lines, prev)
         dropped = []
         if not prev:
-            dropped, new = new[:-tail] if tail else [], new[-tail:]
+            start = max(len(new) - tail, 0) if tail else 0
+            while is_lead and 0 < start < len(new) and new[start][0][:1].isspace():
+                start -= 1
+            dropped, new = new[:start], new[start:]
         cut = len(new) if cap is None else cap
         while is_lead and cut < len(new) and new[cut][0][:1].isspace():
             cut += 1
@@ -376,6 +401,7 @@ def collect(commit=False):
             state["ingest"] = ist
             beats = len(patch.get("events", []))
             if beats or any(patch.get(k) for k in ("edit", "metrics", "chapters", "headline", "run", "addLanes")):
+                patch["meta"].update(unparsed=unparsed, notes=notes)
                 draft_out = patch
                 draft_status = bool((patch.get("headline") or {}).get("status"))
             todo.append(f"{name} (+{beats} beats)")
@@ -388,13 +414,15 @@ def collect(commit=False):
               + ("  [first pass: tail only]" if not prev else "") + (f"  [{len(rest)} more next pass]" if rest else ""))
         for text in shown:
             print("  " + text)
-    state["threads"], state["pending"] = t3(cfg, old.get("threads", {}))
+    seen = t3(cfg, old.get("threads", {}))
+    state["threads"], state["pending"] = seen if seen else (old.get("threads", {}), old.get("pending", []))
     if commit:
         write_state(state, STATE)
         STAGED.unlink(missing_ok=True)
         DRAFT.unlink(missing_ok=True)
     else:
         batch = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + secrets.token_hex(3)
+        STAGED.unlink(missing_ok=True)
         if draft_out:
             write_state({**draft_out, "batch": batch}, DRAFT)
         else:
@@ -402,7 +430,7 @@ def collect(commit=False):
         write_state({**state, "batch": batch}, STAGED)
     if held:
         print("\nHELD for the next pass (output budget): " + ", ".join(held))
-    stale = "" if draft_status else stale_status(cfg, newest)
+    stale = "" if draft_status else stale_status(cfg)
     if stale:
         print("\n" + stale)
     if todo:

@@ -42,7 +42,7 @@ def t3_detect(a):
     home = Path(os.environ.get("T3CODE_HOME") or Path.home() / ".t3").expanduser()
     try:
         env = (home / "userdata/environment-id").read_text().strip()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None, thread
     return ({"env": env, "thread": thread} if safe_id(env) else None), thread
 
@@ -76,6 +76,9 @@ def main():
     ap.add_argument("--no-t3", action="store_true", help="don't record run.t3 or watch this T3 thread")
     ap.add_argument("--empty", action="store_true", help="no starter chapter or event, for seeding history that predates the scaffold")
     a = ap.parse_args()
+    off = re.fullmatch(r"(?:UTC|GMT)?[+-](\d\d):?(\d\d)", a.tz)
+    if off and not (int(off[1]) < 24 and int(off[2]) < 60):
+        sys.exit(f"--tz {a.tz}: a UTC offset must be under 24:00 with minutes under 60")
 
     root = Path(a.folder).expanduser().resolve()
     live = root / "live"
@@ -92,10 +95,14 @@ def main():
     t3_run, thread = t3_detect(a)
     if a.upgrade and exists:
         print(f"upgraded {page} and {live}/ scripts; events and config untouched")
-        try:
-            has = "t3" in (json.loads((live / "events.json").read_text()).get("run") or {})
-        except (OSError, ValueError):
-            has = True
+        has = True
+        if t3_run:
+            try:
+                feed = json.loads((live / "events.json").read_text())
+                run = feed.get("run") if isinstance(feed, dict) else None
+                has = isinstance(run, dict) and "t3" in run
+            except (OSError, ValueError):
+                pass
         if t3_run and not has:
             print("run.t3 is missing; add it with:\n  python3 live/patch.py <<'EOF'\n" + json.dumps({"run": {"t3": t3_run}}) + "\nEOF")
         return

@@ -7,6 +7,7 @@
 collect.py calls parse() when config has "leadLog"; the keeper only adds titles and causedBy (patch.py {"draft": true, "fill": {...}}).
 """
 import difflib
+import hashlib
 import json
 import re
 import shutil
@@ -23,7 +24,7 @@ import validate  # noqa: E402
 
 BEAT = re.compile(r"^-\s+(\d{1,2}):(\d\d)\s+\(([^)/]+?)(?:/([^)]+))?\)\s*(.*)$")
 TAG = re.compile(r"\[([A-Za-z][\w-]*)(?::((?:[^\[\]]|\[[^\[\]]*\])*))?\](?!\()")
-CODE = re.compile(r"`[^`\n]*`")
+CODE = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)")
 KNOWN = {"start", "result", "fail", "breakthrough", "decision", "nudge", "review", "blocked", "blocker", "ask", "cleared", "done",
          "metric", "status", "progress", "best", "chapter", "end", "key", "img", "snap", "thread", "model", "date"}
 NEEDS_ARG = {"blocker", "img", "snap", "done", "metric", "chapter", "status", "progress", "best", "date", "thread", "model", "ask"}
@@ -98,14 +99,15 @@ def parse_metric(text):
     return {"name": name, "value": raw}
 
 
-def thumb(path, hhmm, make):
+def thumb(path, hhmm, day, make):
     """Return an `images` entry for [img: path | caption], or (None, reason)."""
     src = ROOT / path
     if not validate.safe_image_path(path) or validate.private_path(src, ROOT):
         return None, f"refused image {path}"
     if not src.is_file():
         return None, f"missing image {path}"
-    rel = f"live/thumbs/{hhmm}-{src.stem}.jpg"
+    fp = hashlib.sha1(f"{path}|{day}".encode()).hexdigest()[:6]
+    rel = f"live/thumbs/{hhmm}-{src.stem}-{fp}.jpg"
     out = ROOT / rel
     if out.exists() or not make:
         return {"path": rel, "full": path}, None
@@ -123,6 +125,13 @@ def thumb(path, hhmm, make):
     except Exception:
         out.unlink(missing_ok=True)
         return {"path": path}, None
+
+
+def not_after(start, stamp):
+    try:
+        return validate.when(start["time"]) <= validate.when(stamp)
+    except (KeyError, ValueError):
+        return True
 
 
 def title_of(summary):
@@ -144,25 +153,28 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
     patch = {"events": [], "edit": {}, "metrics": [], "chapters": [], "addLanes": [], "headline": {}, "run": {}}
     meta = {"snaps": {}, "src": {}}
     skip_header = {h.strip() for h in header}
+    replaced = {e["supersedes"] for e in feed.get("events", []) if e.get("supersedes")}
+    live = [e for e in feed.get("events", []) if e.get("id") not in replaced]
     open_starts = [{"id": e["id"], "lane": e["lane"], "title": e.get("title", ""), "summary": e.get("summary", ""), "time": e.get("time", "")}
-                   for e in feed.get("events", []) if e.get("kind") == "start" and e.get("state") == "running"]
+                   for e in live if e.get("kind") == "start" and e.get("state") == "running"]
     open_blocks = [{"id": e["id"], "lane": e["lane"], "time": e.get("time", "")}
-                   for e in feed.get("events", []) if e.get("kind") == "blocked" and e.get("state", "open") != "cleared"]
-    beats, seen_beat = [], False
+                   for e in live if e.get("kind") == "blocked" and e.get("state", "open") != "cleared"]
+    beats, seen_beat, grouping = [], False, False
     for line in lines:
         b = BEAT.match(line)
         if b:
-            seen_beat = True
+            seen_beat = grouping = True
             beats.append([b, [b[5]], [line]])
         elif not line.strip():
             continue
-        elif line[:1].isspace() and beats:
+        elif line[:1].isspace() and grouping:
             beats[-1][1].append(re.sub(r"^\s*[-*]\s+", "", line.strip()))
             beats[-1][2].append(line)
         elif not seen_beat and line.strip() in skip_header:
             continue
         else:
             unparsed.append(line)
+            grouping = False
     n_ev = n_ch = 0
     day = prev.date() if prev else day0
     for b, parts, raws in beats:
@@ -272,7 +284,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
                 if len(images) >= 8:
                     notes.append(f"more than 8 images on {h:02d}:{mi:02d} line; extra skipped")
                     break
-                entry, why = thumb(path.strip(), hhmm, thumbs)
+                entry, why = thumb(path.strip(), hhmm, stamp[:10], thumbs)
                 if why:
                     notes.append(f"{why} on {h:02d}:{mi:02d} line")
                     continue
@@ -302,7 +314,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
             patch["chapters"].append({"ref": f"k{n_ch}", "title": t, **({"summary": s} if s else {}), "start": stamp})
 
         if "done" in names:
-            target, tie = match_start(arg["done"], [x for x in open_starts if not (ev and x["id"] == "@" + ev["ref"])], lane)
+            target, tie = match_start(arg["done"], [x for x in open_starts if not (ev and x["id"] == "@" + ev["ref"]) and not_after(x, stamp)], lane)
             if target:
                 patch["edit"].setdefault(target["id"], {}).update(state="done", end=stamp)
                 meta["src"][target["id"]] = f"done: {arg['done']}"
@@ -310,7 +322,7 @@ def parse(lines, header, feed, cfg, state, thumbs=True):
             else:
                 notes.append(f"{'AMBIGUOUS' if tie else 'UNMATCHED'} done: {arg['done']}")
         elif kind == "review":
-            target = max((s for s in open_starts if s["lane"] == lane), key=lambda s: s["time"], default=None)
+            target = max((s for s in open_starts if s["lane"] == lane and not_after(s, stamp)), key=lambda s: s["time"], default=None)
             if target and not (ev and target["id"] == "@" + ev["ref"]):
                 patch["edit"].setdefault(target["id"], {}).update(state="done", end=stamp)
                 open_starts.remove(target)

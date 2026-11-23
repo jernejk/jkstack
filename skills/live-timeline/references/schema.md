@@ -33,7 +33,7 @@ update for 40 min — keeper stopped?". Send `{}` at least every 20 minutes whil
 
 | Key | Does |
 |---|---|
-| `events` | Appended. Leave out `id` (assigned `e###`), `time` (defaults to now) and `chapter` (defaults to the last chapter that had started by the event's `time`). Give a `"ref": "x"` to point at it elsewhere in the same patch as `"@x"`. |
+| `events` | Appended. Leave out `id` (assigned `e###`), `time` (defaults to now) and `chapter` (defaults to the last chapter that had started by the event's `time`, or the first chapter when none had). Give a `"ref": "x"` to point at it elsewhere in the same patch as `"@x"`. |
 | `edit` | `{ "e012": { "state": "done" } }` merges fields into an existing event and stamps its `updated`. Closing a start stamps its `end` (the latest new event that names it in `causedBy`, else now). |
 | `editChapters` | `{ "c4": { "digest": "…", "outcome": "…", "keyBeats": ["e101"] } }` merges into a chapter. |
 | `draft` | `true` applies `live/keeper/draft.json`, the patch `collect.py` drafted from the lead log; `fill` adds titles and links per draft beat (see the keeper brief). |

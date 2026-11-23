@@ -49,6 +49,13 @@ def block(c, events):
         lines = [head] + meta + render(events, width, collapse)
         if sum(len(l) + 1 for l in lines) <= LIMIT:
             break
+    else:
+        keep, used = 1 + len(meta), 0
+        for i, l in enumerate(lines):
+            used += len(l) + 1
+            if used > LIMIT - 80 and i >= keep:
+                lines = lines[:i] + [f"  (+{len(lines) - i} more lines omitted; the rest is in events.json)"]
+                break
     return "\n".join(lines)
 
 

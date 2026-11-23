@@ -82,7 +82,7 @@ def main():
     out += ["", "What happened:" if a.since == "all" else f"Since {since.strftime('%a %H:%M' if since.date() != now.date() else '%H:%M')}:"]
     line = lambda e: f"- {hm(e)} {MARK.get(e['kind'], '·')} {e['title']} — {e['summary']}"
     chapters = {c["id"]: c for c in d.get("chapters", [])}
-    if any((chapters.get(e.get("chapter")) or {}).get("digest") for e in beats):
+    if a.since == "all" and any((chapters.get(e.get("chapter")) or {}).get("digest") for e in beats):
         for cid in dict.fromkeys(e.get("chapter") for e in beats):
             c, inside = chapters.get(cid) or {}, [e for e in beats if e.get("chapter") == cid]
             out.append(f"{c.get('title', 'Other')}:" if c else "Other:")

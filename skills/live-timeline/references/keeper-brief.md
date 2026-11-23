@@ -25,8 +25,8 @@ Folder: `<absolute work folder>`. Run every command from there. Feed: `live/even
 - Be thrifty: one `collect.py` and one `patch.py` per cycle. Don't reopen files you have already summarised. Never open screenshots.
 
 ## Each cycle
-1. `python3 live/collect.py --wait <20m>` returns as soon as a source changes (or prints `QUIET` after 20 minutes). It prints the new lead-log lines as a **draft**: `d1 19:59 build/opus start running · summary`. Times, lanes, models, kinds, chapters, metrics, images, status and closed starts are already in it.
-2. Send one patch: `{"draft": true, "fill": {"d1": {"title": "…", "causedBy": ["e120"]}, …}}`. Until it installs, the same draft comes back; a patch without `"draft": true` leaves it pending.
+1. `python3 live/collect.py --wait <20m>` returns as soon as a source changes, a T3 thread moves or the status goes stale (or prints `QUIET` after 20 minutes). New lead-log lines come as a **draft** under a `DRAFT from …` heading: `d1 19:59 build/opus start running · summary`. Times, lanes, models, kinds, chapters, metrics, images, status and closed starts are already in it.
+2. Only when collect.py printed a `DRAFT from …` block, send one patch: `{"draft": true, "fill": {"d1": {"title": "…", "causedBy": ["e120"]}, …}}`. Until it installs, the same draft comes back; a patch without `"draft": true` leaves it pending. With no `DRAFT from …` block there is no draft: leave out `"draft"` and send only what steps 3 and 4 call for, or `{}`.
    - `title`: 8 plain words or fewer, from the summary. Drafts already carry a rough title; replace it.
    - `causedBy`: only from an outcome (result, fail, review, breakthrough) to the start or nudge it came from, using ids from `recent.py` (or `@d2` for a beat in the same draft). Leave it out when nothing earlier caused it. Never chain a beat to the one before it.
    - Optional: a shorter `summary`, a `why` on importance-3 beats, `{"skip": true}` for a line that isn't worth a beat.
@@ -34,8 +34,8 @@ Folder: `<absolute work folder>`. Run every command from there. Feed: `live/even
    - Lines under `UNPARSED` go in the same patch as ordinary `events` (see `live/SCHEMA.md` only if you need a field you don't know).
 3. Other sources (reports, T3 thread activity) become one event each when they say something new. A reviewer's report becomes one `review` event on its lane with up to five `detail` bullets.
 4. If `collect.py` flags the status as old, add `headline.status` to the patch, corrected or unchanged.
-5. On `QUIET`, send `{}` and run step 1 again.
-6. When a `[chapter:]` line starts a new chapter, also write the previous chapter's story: `python3 live/digest.py c<N>` prints it; add `"editChapters": {"c<N>": {"digest": "2–3 plain sentences", "outcome": "one line", "keyBeats": ["e…"]}}` (at most 4 beats) to the same patch.
+5. On `QUIET`, nothing was collected: send `{}` as the heartbeat and run step 1 again.
+6. When a `[chapter:]` line starts a new chapter, also write the previous chapter's story: `python3 live/digest.py c<N>` prints it; add `"editChapters": {"c<N>": {"digest": "2–3 plain sentences", "outcome": "one line", "keyBeats": ["e…"]}}` (at most 4 beats) to the same patch. That works for a chapter already in the feed. A chapter the pending draft creates has no id until the draft installs: install the draft first, then run `digest.py` for its id and send the digest in a follow-up patch.
 
 ## Finish
 Stop at `[end]` in the lead log, or at <end time>. Close what has finished, set completed lanes to `done`, set `"run": {"done": true}` and the status tone to `done`. Write the last chapter's story and the run's (`python3 live/digest.py --missing`, then `editChapters` and `"run": {"digest": ["≤3 lines"]}`), then stop. Never mark unfinished work as a success.
