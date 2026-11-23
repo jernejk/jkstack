@@ -374,6 +374,11 @@ def refresh_cases(browser, html, base):
     context, page, errors = open_page(browser, html, feed, clock=True)
     page.locator('.list .row[data-ev="e5"]').click()
     assert page.locator(".sheet-wrap:not([hidden]) .opt").count() == 2
+    page.locator('.sheet-wrap .opt[data-choice="Neon"]').click()
+    page.locator(".sheet-wrap .m-nav button:not([disabled])").first.focus()
+    poll(page)
+    assert page.locator('.sheet-wrap .opt[data-choice="Neon"]').get_attribute("aria-pressed") == "true", "an unchanged poll keeps the picked choice"
+    assert page.evaluate("!!document.activeElement.closest('.sheet-wrap .m-nav')"), "an unchanged poll keeps focus inside the sheet"
     feed["events"][4]["state"] = "cleared"
     feed["updated"] = stamp(datetime.now(timezone.utc))
     poll(page)

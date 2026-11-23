@@ -1272,7 +1272,8 @@ function updatePanel(R) {
 }
 async function copy(text) {
   try { await Promise.race([navigator.clipboard.writeText(text), new Promise((_, no) => setTimeout(no, 700))]); return true; } catch {}
-  try { const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(t); t.select(); const ok = document.execCommand('copy'); t.remove(); return ok; } catch { return false; }
+  const f = document.activeElement;
+  try { const t = document.createElement('textarea'); t.value = text; t.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(t); t.select(); const ok = document.execCommand('copy'); t.remove(); f?.focus({ preventScroll: true }); return ok; } catch { return false; }
 }
 let toastT;
 function toast(msg) {
@@ -1295,13 +1296,17 @@ const sheet = {
     this.el.hidden = false;
     if (!quiet) $('.x', this.el).focus({ preventScroll: true });
   },
-  event(id, push = true, quiet = false) {
+  event(id, push = true, quiet = false, only = false) {
     const R = state.R, e = R.by[id]; if (!e || !e.L) return;
     if (push) this.stack.push(id);
     const beats = R.events.filter(x => x.importance >= 2 || x.open), pos = beats.indexOf(e);
     const prev = pos > 0 ? beats[pos - 1] : null, next = pos >= 0 && pos < beats.length - 1 ? beats[pos + 1] : null;
     const nav = `<div class="m-nav"><button ${prev ? `data-ev="${esc(prev.id)}"` : 'disabled'}>${ICON.back}<span>${prev ? esc(prev.title) : ''}</span></button><button ${next ? `data-ev="${esc(next.id)}"` : 'disabled'}><span>${next ? esc(next.title) : ''}</span>${ICON.fwd}</button></div>`;
-    this.open(eventDetail(e, R) + nav, `Chapter ${e.C.n || ''}: ${e.C.title}`, quiet);
+    const html = eventDetail(e, R) + nav, title = `Chapter ${e.C.n || ''}: ${e.C.title}`;
+    const sig = (title + html).replace(/(<span data-since="\d+">)[^<]*/g, '$1');
+    if (only && sig === this.sig) return;
+    this.sig = sig;
+    this.open(html, title, quiet);
     hashTo(id);
     if (cur().onShow) cur().onShow(e);
   },
@@ -1310,7 +1315,7 @@ const sheet = {
     const id = this.stack[this.stack.length - 1], e = state.R.by[id];
     if (!e || !e.L) return this.close();
     const body = $('.sheet-body', this.el), y = body.scrollTop;
-    this.event(id, false, true);
+    this.event(id, false, true, true);
     body.scrollTop = y;
   },
   back() { this.stack.pop(); const id = this.stack[this.stack.length - 1]; if (id) this.event(id, false); else this.close(); },
