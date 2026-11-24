@@ -11,6 +11,14 @@ These skills are modified versions of skills the author uses day to day, adapted
 | [design-hill-climb](skills/design-hill-climb/SKILL.md) | Improve a real interface with blind reference comparisons and a fixed review budget. |
 | [dep-investigate](skills/dep-investigate/SKILL.md) | Trace a dependency through its resolved graph and exact-version source. |
 
+### live-timeline in action
+
+A real 30-minute run, from the first prompt to the finished app:
+
+https://github.com/user-attachments/assets/58c70e59-61e4-4dc8-99f2-19b15560e7fc
+
+<sub>Music: "Laserpack" by Kevin MacLeod (incompetech.com), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).</sub>
+
 ## Blueprints
 
 Blueprints describe larger workflows whose tooling is too specific to bundle. Each one gives the method, formats and review steps, and describes the tools worth building. Setup does not install them: read one and adapt it, or link its folder into your skills directory yourself.
