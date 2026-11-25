@@ -15,7 +15,7 @@ These skills are modified versions of skills the author uses day to day, adapted
 
 A real 30-minute run, from the first prompt to the finished app:
 
-https://github.com/user-attachments/assets/58c70e59-61e4-4dc8-99f2-19b15560e7fc
+https://github.com/user-attachments/assets/82c5b0f4-86d0-493d-8315-0d0944d4bf23
 
 <sub>Music: "Laserpack" by Kevin MacLeod (incompetech.com), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).</sub>
 
